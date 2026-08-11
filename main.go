@@ -10,6 +10,22 @@ import (
 
 var db *sql.DB
 
+// splitAndTrim 按逗号拆分字符串并去除空白，跳过空项
+func splitAndTrim(s string) []string {
+	var res []string
+	cur := ""
+	for _, r := range s {
+		if r == ',' {
+			if t := strings.TrimSpace(cur); t != "" { res = append(res, t) }
+			cur = ""
+		} else {
+			cur += string(r)
+		}
+	}
+	if t := strings.TrimSpace(cur); t != "" { res = append(res, t) }
+	return res
+}
+
 func initDB() {
 	os.MkdirAll("./data", 0755)
 	var err error
@@ -77,6 +93,26 @@ func main() {
 			res = append(res, map[string]interface{}{"id": id, "timestamp": ts, "people": p, "tags": t, "severity_self": sev, "content": con, "status": stat})
 		}
 		c.JSON(200, res)
+	})
+
+	r.GET("/api/metadata", func(c *gin.Context) {
+		// 聚合已存在的人物与标签（按逗号分隔的字符串拆分去重）
+		peopleSet := map[string]struct{}{}
+		tagsSet := map[string]struct{}{}
+		rows, err := db.Query("SELECT people, tags FROM events WHERE people != '' OR tags != ''")
+		if err != nil { c.JSON(500, gin.H{"error": err.Error()}); return }
+		defer rows.Close()
+		for rows.Next() {
+			var p, t string
+			rows.Scan(&p, &t)
+			for _, s := range splitAndTrim(p) { peopleSet[s] = struct{}{} }
+			for _, s := range splitAndTrim(t) { tagsSet[s] = struct{}{} }
+		}
+		people := make([]string, 0, len(peopleSet))
+		for k := range peopleSet { people = append(people, k) }
+		tags := make([]string, 0, len(tagsSet))
+		for k := range tagsSet { tags = append(tags, k) }
+		c.JSON(200, gin.H{"people": people, "tags": tags})
 	})
 
 	r.GET("/api/events/search", func(c *gin.Context) {
