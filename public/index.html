@@ -285,7 +285,9 @@
             messageBox.className = 'hidden';
 
             const payload = {
-                timestamp: timestampInput.value.replace('T', ' '),
+                // datetime-local 输出 YYYY-MM-DDTHH:mm，无时区偏移；
+                // 后端 time.Parse(RFC3339) 强制要求偏移量，故手动补 +08:00
+                timestamp: timestampInput.value + ':00+08:00',
                 people: state.selectedPeople.join(', '),
                 tags: state.selectedTags.join(', '),
                 severity_self: parseInt(severityInput.value),
