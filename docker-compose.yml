@@ -1,0 +1,10 @@
+services:
+  event-recorder:
+    build: .
+    container_name: personal-event-recorder
+    ports:
+      - "18080:18080"
+    volumes:
+      # 将 data 目录挂载到宿主机当前目录下的 data 文件夹，实现数据持久化
+      - ./data:/app/data
+    restart: unless-stopped
