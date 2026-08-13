@@ -768,3 +768,74 @@ func confirmFactCandidateHandler(c *gin.Context) {
 	db.Exec("UPDATE sessions SET messages = ?, updated_at = ? WHERE id = ?", string(newJSON), now, sid)
 	c.JSON(200, gin.H{"ok": true, "candidate": cs[candIdx]})
 }
+
+// =====================================================
+//  AI 识图记录：独立于会话，直接上传图片 → 提取事实 → 审核 → 入库
+// =====================================================
+// visionExtractHandler: 接收图片（可附文字），调用 runFactExtract 返回候选事实列表
+func visionExtractHandler(c *gin.Context) {
+	var payload struct {
+		ImageData string `json:"image_data" binding:"required"`
+		UserText  string `json:"user_text"` // 可选的文字补充描述
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if len(payload.ImageData) > 5*1024*1024 {
+		c.JSON(400, gin.H{"error": "图片需小于 5MB"})
+		return
+	}
+	cands, err := runFactExtract(payload.UserText, payload.ImageData)
+	if err != nil {
+		// 提取失败仍返回一条 draft，让用户可以手动编辑后入库
+		cands = []FactCandidate{{
+			Status:       "extract_error",
+			ExtractError: err.Error(),
+			Content:      "[AI 未能识别图片内容，请手动描述事件]",
+			SuggestedTimestamp: time.Now().UTC().Format(time.RFC3339),
+			TimestampUncertain: true,
+		}}
+	}
+	c.JSON(200, gin.H{"candidates": cands})
+}
+
+// batchConfirmHandler: 批量确认候选事实 → 直接写入 events 表
+// 请求体：{ "candidates": [ { "timestamp","people","tags","severity","content" } ] }
+func batchConfirmHandler(c *gin.Context) {
+	var body struct {
+		Candidates []struct {
+			Timestamp string `json:"timestamp"`
+			People    string `json:"people"`
+			Tags      string `json:"tags"`
+			Severity  *int   `json:"severity"`
+			Content   string `json:"content" binding:"required"`
+		} `json:"candidates" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	var ids []int64
+	for _, c2 := range body.Candidates {
+		sev := 1
+		if c2.Severity != nil && *c2.Severity >= 1 && *c2.Severity <= 5 {
+			sev = *c2.Severity
+		}
+		ts := c2.Timestamp
+		if strings.TrimSpace(ts) == "" {
+			ts = now
+		}
+		res, err := db.Exec(
+			`INSERT INTO events (timestamp, people, tags, severity_self, content, status, created_at) VALUES (?,?,?,?,?,"reviewed",?)`,
+			ts, c2.People, c2.Tags, sev, c2.Content, now,
+		)
+		if err != nil {
+			continue
+		}
+		lid, _ := res.LastInsertId()
+		ids = append(ids, lid)
+	}
+	c.JSON(200, gin.H{"ok": true, "inserted_ids": ids})
+}

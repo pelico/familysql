@@ -957,6 +957,50 @@
   <div id="facts-add" class="facts-section active">
 
     <div class="glass-card">
+      <div class="list-row list-row-click" onclick="toggleVisionExtract()">
+        <div class="icon-wrap g-indigo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+        </div>
+        <div class="row-body">
+          <div class="row-title">AI 识图记录 · 对话截图 → 事实提取</div>
+          <div class="row-sub">上传一张聊天截图或事件现场图，AI 自动识别其中的对话/事件，生成待审核候选。改完点「确认入库」即写入事实库。</div>
+        </div>
+        <span class="chev" id="visionChev">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+        </span>
+      </div>
+      <div class="expand-box" id="visionBox" style="display:none;">
+        <div class="expand-inner">
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <div id="visionImgPreview" style="display:none;position:relative;">
+              <img id="visionPreviewImg" style="max-height:180px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;">
+              <button class="btn-ghost" style="position:absolute;top:4px;right:4px;padding:3px 7px;font-size:11px;background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.08);" onclick="clearVisionImage()">移除</button>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <input type="file" id="visionFileInput" accept="image/*" style="display:none;" onchange="onVisionPickImage(event)">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                <button class="btn-ghost" style="padding:9px 14px;font-size:12px;" onclick="document.getElementById('visionFileInput').click()">
+                  <span style="display:inline-flex;align-items:center;gap:5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25z"/></svg>
+                    选择图片
+                  </span>
+                </button>
+                <span style="font-size:11px;color:#94a3b8;">或 Ctrl+V 粘贴截图</span>
+              </div>
+              <textarea id="visionText" rows="2" class="field" placeholder="补充文字说明（可选，如截图的背景/人物身份）"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:9px;margin-top:10px;">
+            <button class="btn-primary" style="flex:1;padding:11px 16px;" id="visionExtractBtn" onclick="runVisionExtract()">AI 识别 → 生成候选事实</button>
+            <button class="btn-ghost" onclick="toggleVisionExtract()">取消</button>
+          </div>
+          <div id="visionCandidatesArea" style="margin-top:14px;"></div>
+          <div id="visionMsg" class="msg-box"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-card" style="margin-top:10px;">
       <div class="list-row list-row-click" onclick="toggleQuickNote()">
         <div class="icon-wrap g-amber">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
@@ -1172,6 +1216,9 @@ const state = {
   lastSearchTimer: null,
   expandedCal: new Set(),
   quickOpen: false,
+  visionOpen: false,
+  visionImageData: '',
+  visionCandidates: [],
 };
 
 const sevLabels = {
@@ -1322,6 +1369,212 @@ function updateSev(v){
 }
 
 // 快记展开收起
+// =====================================================
+//  AI 识图记录（独立于会话的快速事实提取入口）
+// =====================================================
+window.toggleVisionExtract = function(){
+  state.visionOpen = !state.visionOpen;
+  const box = document.getElementById('visionBox');
+  const chev = document.getElementById('visionChev');
+  if (state.visionOpen) {
+    box.style.display = 'block';
+    chev.querySelector('svg').style.transform = 'rotate(90deg)';
+  } else {
+    box.style.display = 'none';
+    chev.querySelector('svg').style.transform = 'rotate(0)';
+  }
+};
+document.getElementById('visionChev').querySelector('svg').style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+document.getElementById('visionChev').querySelector('svg').style.transform = 'rotate(0)';
+
+window.onVisionPickImage = async function(e){
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 5*1024*1024) { alert('图片需小于 5MB'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.visionImageData = reader.result;
+    document.getElementById('visionPreviewImg').src = state.visionImageData;
+    document.getElementById('visionImgPreview').style.display = 'inline-block';
+  };
+  reader.readAsDataURL(f);
+};
+window.clearVisionImage = function(){
+  state.visionImageData = '';
+  document.getElementById('visionImgPreview').style.display = 'none';
+  document.getElementById('visionPreviewImg').src = '';
+  document.getElementById('visionCandidatesArea').innerHTML = '';
+};
+window.runVisionExtract = async function(){
+  const msg = document.getElementById('visionMsg');
+  msg.className = 'msg-box'; msg.innerText = '';
+  if (!state.visionImageData) { msg.classList.add('err'); msg.innerText = '请先上传或粘贴一张图片'; return; }
+  const btn = document.getElementById('visionExtractBtn');
+  btn.disabled = true; btn.textContent = 'AI 识别中…';
+  try {
+    const res = await fetch('/api/events/vision-extract',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({image_data: state.visionImageData, user_text: document.getElementById('visionText').value})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'识别失败');
+    if (!d.candidates || d.candidates.length === 0) {
+      document.getElementById('visionCandidatesArea').innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:10px;">AI 未识别到任何事件，请手动在「快记」里记录</div>';
+      return;
+    }
+    renderVisionCandidates(d.candidates);
+    msg.classList.add('ok'); msg.innerText = `识别出 ${d.candidates.length} 条候选事实，请逐条审核后入库`;
+  } catch(e){
+    msg.classList.add('err'); msg.innerText = '识别失败: '+e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'AI 识别 → 生成候选事实';
+  }
+};
+// 在 #visionBox 区域监听粘贴
+document.addEventListener('paste', function(ev){
+  const items = ev.clipboardData && ev.clipboardData.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      // 仅在 visionBox 展开时自动粘贴，或用户焦点在 visionText 时
+      const active = document.activeElement;
+      const inVision = active && (active.id === 'visionText' || (active.closest && active.closest('#visionBox')));
+      if (!inVision && !state.visionOpen) return;
+      const file = items[i].getAsFile();
+      if (file && file.size <= 5*1024*1024) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          state.visionImageData = reader.result;
+          document.getElementById('visionPreviewImg').src = state.visionImageData;
+          document.getElementById('visionImgPreview').style.display = 'inline-block';
+        };
+        reader.readAsDataURL(file);
+      }
+      break;
+    }
+  }
+});
+
+// 渲染视觉提取出的候选事实（复用审核卡片样式 + 批量入库按钮）
+function renderVisionCandidates(candidates){
+  const area = document.getElementById('visionCandidatesArea');
+  area.innerHTML = '';
+  const container = document.createElement('div');
+  container.innerHTML = `
+    <div style="font-size:11px;font-weight:600;color:#0f172a;margin-bottom:8px;letter-spacing:.04em;">
+      📋 AI 识别结果 — 逐条审核，确认后入库
+    </div>
+    <div id="visCandList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn-ghost" style="padding:9px 15px;font-size:12px;" onclick="clearVisionImage()">清空重来</button>
+      <button class="btn-primary" style="padding:9px 18px;font-size:12px;" id="visBatchBtn" onclick="submitVisionBatch()">确认入库选中项</button>
+    </div>
+  `;
+  area.appendChild(container);
+  const list = document.getElementById('visCandList');
+  candidates.forEach((c, i) => {
+    list.appendChild(renderVisionCandidateCard(c, i));
+  });
+  state.visionCandidates = candidates;
+}
+function renderVisionCandidateCard(c, idx){
+  const uncert = !!c.timestamp_uncertain;
+  const st = c.status || 'pending';
+  const checked = st === 'confirmed' ? 'checked' : '';
+  const tagColor = st==='extract_error' ? 'background:#e2e8f0;color:#334155;' :
+                   st==='confirmed' ? 'background:#bbf7d0;color:#166534;' :
+                   'background:#fef3c7;color:#92400e;';
+  const tag = st==='extract_error' ? '提取失败（可改后手动入库）' :
+              st==='confirmed' ? '已入库' :
+              (uncert?'待核实·时间占位':'待审核');
+  const ts = c.suggested_timestamp || c.timestamp || '';
+  const sev = (c.severity != null && c.severity !== undefined) ? c.severity : 1;
+  const card = document.createElement('div');
+  card.className = 'glass-card';
+  card.style.cssText = 'padding:12px 14px;' + (uncert && st!=='confirmed' ? 'border-color:#f59e0b;background:linear-gradient(180deg,#fffbeb,#ffffff);' : '');
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0f172a;cursor:pointer;">
+        <input type="checkbox" class="vis-cand-check" data-idx="${idx}" ${checked} ${st==='extract_error'||st==='confirmed'?'disabled':''} style="width:14px;height:14px;">
+        选入事实库
+      </label>
+      <span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;${tagColor}">${tag}</span>
+    </div>
+    ${c.extract_error ? `<div style="font-size:11px;color:#ef4444;margin-bottom:8px;">${escapeHtml(c.extract_error)}</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（AI 不确定，已占位）':''}</div>
+        <input data-k="timestamp" value="${escapeAttr(ts)}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">严重度 1~5</div>
+        <input data-k="severity" type="number" min="1" max="5" value="${sev}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
+        <input data-k="people" value="${escapeAttr(c.people||'')}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
+        <input data-k="tags" value="${escapeAttr(c.tags||'')}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">事实内容</div>
+      <textarea data-k="content" rows="3" class="field vis-f" data-idx="${idx}" style="padding:8px 10px;font-size:12.5px;line-height:1.6;">${escapeHtml(c.content||'')}</textarea>
+    </div>
+  `;
+  return card;
+}
+window.submitVisionBatch = async function(){
+  const checks = document.querySelectorAll('.vis-cand-check');
+  const toConfirm = [];
+  checks.forEach(cb => {
+    if (!cb.checked || cb.disabled) return;
+    const idx = parseInt(cb.dataset.idx, 10);
+    const inputs = document.querySelectorAll(`.vis-f[data-idx="${idx}"]`);
+    if (inputs.length < 5) return;
+    toConfirm.push({
+      timestamp: inputs[0].value,
+      severity: parseInt(inputs[1].value, 10),
+      people: inputs[2].value,
+      tags: inputs[3].value,
+      content: inputs[4].value,
+    });
+  });
+  if (toConfirm.length === 0) { alert('请至少勾选一条要入库的候选'); return; }
+  const btn = document.getElementById('visBatchBtn');
+  btn.disabled = true; btn.textContent = '写入中…';
+  try {
+    const res = await fetch('/api/events/batch-confirm',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({candidates: toConfirm})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'写入失败');
+    if (d.inserted_ids && d.inserted_ids.length > 0) {
+      const msg = document.getElementById('visionMsg');
+      msg.className = 'msg-box ok';
+      msg.innerText = `✅ 已写入 ${d.inserted_ids.length} 条事实到事实库（ID: ${d.inserted_ids.join(', ')}）`;
+      // 刷新候选卡片为已入库状态
+      checks.forEach(cb => { if (cb.checked) { cb.disabled = true; cb.checked = true; } });
+      btn.textContent = '已入库 ✓';
+      setTimeout(()=>{
+        clearVisionImage();
+        const evTab = document.querySelector('.tab-btn[data-tab="events-add"]');
+        if (evTab) { /* stay on current tab */ }
+        // 刷新事件列表
+        loadEvents();
+        loadStats();
+      }, 1200);
+    }
+  } catch(e){
+    alert('写入失败: '+e.message);
+    btn.disabled = false; btn.textContent = '确认入库选中项';
+  }
+};
+
+// =====================================================
+//  记录提交
+// =====================================================
+
 window.toggleQuickNote = function(){
   state.quickOpen = !state.quickOpen;
   const box = document.getElementById('quickBox');

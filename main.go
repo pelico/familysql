@@ -264,6 +264,10 @@ func main() {
 	r.POST("/api/events/:id/correct", correctEventHandler)
 	r.GET("/api/events/:id/corrections", listCorrectionsHandler)
 
+	// AI 识图记录：独立接口，不经过会话，直接图片 → 提取 → 审核 → 入库
+	r.POST("/api/events/vision-extract", visionExtractHandler)
+	r.POST("/api/events/batch-confirm", batchConfirmHandler)
+
 	r.PATCH("/api/events/:id/status", func(c *gin.Context) {
 		var body map[string]interface{}
 		if err := c.ShouldBindJSON(&body); err != nil {
