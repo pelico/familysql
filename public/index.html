@@ -1594,6 +1594,9 @@ async function loadSessionList(){
         <div class="row-title">会话 #${s.id} · ${modeInfo[s.mode]?.title||s.mode}</div>
         <div class="row-sub">${fmtTime(s.updated_at)}${s.filter_people?' · 人物:'+escapeHtml(s.filter_people):''}${s.filter_tags?' · 标签:'+escapeHtml(s.filter_tags):''}</div>
       </div>
+      <button class="btn-ghost" style="padding:6px 9px;font-size:11px;color:#ef4444;margin-right:6px;" onclick="deleteSession(${s.id})" title="删除会话">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+      </button>
       <span class="chev">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
       </span>`;
@@ -1710,7 +1713,10 @@ async function loadSavedAnalyses(){
         </div>
         <div class="row-sub" style="font-size:12.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(out)}</div>
         ${a.agent_used?`<div class="row-sub" style="font-size:10.5px;margin-top:4px;">来源: ${escapeHtml(a.agent_used)}</div>`:''}
-      </div>`;
+      </div>
+      <button class="btn-ghost" style="padding:6px 9px;font-size:11px;color:#ef4444;margin-right:4px;flex-shrink:0;" onclick="deleteAnalysis(${a.id})" title="删除分析">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+      </button>`;
     box.appendChild(row);
   });
 }
@@ -1877,6 +1883,35 @@ window.recheckToAnalysis = function(aid){
   checkLLMStatus(); loadSessionList(); loadSavedAnalyses();
   document.getElementById('modeSelector')?.scrollIntoView({behavior:'smooth',block:'center'});
   setTimeout(()=>{alert(`请新建「复检校准」模式的会话，然后输入：\n\n请复检分析 #${aid}：对照此后新增的事实，原结论是否仍成立？需要修正的部分有哪些？`);}, 320);
+};
+
+// =====================================================
+// 设置弹窗
+// =====================================================
+window.openSettings = function(){
+  document.getElementById('settingsModal').classList.add('open');
+  renderProfiles();
+};
+window.closeSettings = function(){
+  document.getElementById('settingsModal').classList.remove('open');
+};
+
+// 删除会话
+window.deleteSession = async function(id){
+  if (!confirm(`确定删除会话 #${id}？该会话的所有对话记录将一并删除，不可恢复。`)) return;
+  const res = await fetch('/api/sessions/'+id, {method:'DELETE'});
+  if (!res.ok){ alert('删除失败'); return; }
+  if (state.activeSession && state.activeSession.id===id) state.activeSession=null;
+  loadSessionList();
+};
+
+// 删除分析结论
+window.deleteAnalysis = async function(id){
+  if (!confirm(`确定删除分析 #${id}？不可恢复。`)) return;
+  const res = await fetch('/api/analyses/'+id, {method:'DELETE'});
+  if (!res.ok){ alert('删除失败'); return; }
+  loadSavedAnalyses();
+  if (document.getElementById('tab-calibration').classList.contains('active')) loadCalibration();
 };
 
 // =====================================================

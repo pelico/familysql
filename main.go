@@ -421,6 +421,14 @@ func main() {
 		})
 	})
 
+	r.DELETE("/api/analyses/:id", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil { c.JSON(400, gin.H{"error": "invalid id"}); return }
+		_, err = db.Exec("DELETE FROM analyses WHERE id = ?", id)
+		if err != nil { c.JSON(500, gin.H{"error": err.Error()}); return }
+		c.JSON(200, gin.H{"ok": true})
+	})
+
 	// =====================================================
 	//  LLM 配置管理 + 状态查询
 	// =====================================================
@@ -437,6 +445,14 @@ func main() {
 	r.GET("/api/sessions", listSessionsHandler)
 	r.GET("/api/sessions/:id", getSessionHandler)
 	r.POST("/api/sessions/:id/messages", sessionMessagesHandler)
+	r.DELETE("/api/sessions/:id", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil { c.JSON(400, gin.H{"error": "invalid id"}); return }
+		db.Exec("DELETE FROM session_turns WHERE session_id = ?", id)
+		_, err = db.Exec("DELETE FROM sessions WHERE id = ?", id)
+		if err != nil { c.JSON(500, gin.H{"error": err.Error()}); return }
+		c.JSON(200, gin.H{"ok": true})
+	})
 
 	// =====================================================
 	//  情境-反应对照库（interaction_patterns）
