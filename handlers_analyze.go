@@ -673,7 +673,7 @@ func resolveProfiles(chosenIDs []int) []LLMProfile {
 // =====================================================
 // confirmFactCandidateHandler: 把 turn 的某个 candidate 写入 events 表，并回写状态/ID
 func confirmFactCandidateHandler(c *gin.Context) {
-	sidStr := c.Param("sid")
+	sidStr := c.Param("id")
 	turnIdxStr := c.Param("tidx")
 	candIdxStr := c.Param("cidx")
 	sid, err1 := strconv.Atoi(sidStr)

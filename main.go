@@ -446,7 +446,7 @@ func main() {
 	r.GET("/api/sessions/:id", getSessionHandler)
 	r.POST("/api/sessions/:id/messages", sessionMessagesHandler)
 	// 候选事实确认/丢弃：把用户在审核面板里改完的 candidate 写入 events 或丢掉
-	r.POST("/api/sessions/:sid/turns/:tidx/candidates/:cidx/confirm", confirmFactCandidateHandler)
+	r.POST("/api/sessions/:id/turns/:tidx/candidates/:cidx/confirm", confirmFactCandidateHandler)
 	r.DELETE("/api/sessions/:id", func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil { c.JSON(400, gin.H{"error": "invalid id"}); return }
