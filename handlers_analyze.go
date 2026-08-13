@@ -290,11 +290,12 @@ func listCorrectionsHandler(c *gin.Context) {
 // =====================================================
 func createSessionHandler(c *gin.Context) {
 	var s struct {
-		Mode       string  `json:"mode" binding:"required"`
-		People     string  `json:"people"`
-		Tags       string  `json:"tags"`
-		ProfileIDs []int   `json:"profile_ids"` // 选哪些模型并发；空 = 全部活跃
-		FirstMsg   *string `json:"first_message"`
+		Mode          string `json:"mode" binding:"required"`
+		People        string `json:"people"`
+		Tags          string `json:"tags"`
+		ProfileIDs    []int  `json:"profile_ids"`     // 选哪些模型并发；空 = 全部活跃
+		FactProfileID *int   `json:"fact_profile_id"` // 事实提取专用模型 ID；nil = 用第一个活跃模型
+		FirstMsg      *string `json:"first_message"`
 	}
 	if err := c.ShouldBindJSON(&s); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -305,9 +306,13 @@ func createSessionHandler(c *gin.Context) {
 	}
 	profJSON, _ := json.Marshal(s.ProfileIDs)
 	now := time.Now().UTC().Format(time.RFC3339)
+	var fid interface{}
+	if s.FactProfileID != nil {
+		fid = *s.FactProfileID
+	}
 	res, err := db.Exec(
-		"INSERT INTO sessions (mode, filter_people, filter_tags, profile_ids, messages, created_at, updated_at) VALUES (?,?,?,?, '[]', ?, ?)",
-		s.Mode, s.People, s.Tags, string(profJSON), now, now,
+		"INSERT INTO sessions (mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+		s.Mode, s.People, s.Tags, string(profJSON), fid, "[]", now, now,
 	)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

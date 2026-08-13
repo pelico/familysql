@@ -98,6 +98,8 @@ func initDB() {
 	db.Exec(`ALTER TABLE analyses ADD COLUMN session_id INTEGER`)
 	// sessions 表：profile_ids JSON 数组（多模型并行时记录"这次会话选了哪几个模型"）
 	db.Exec(`ALTER TABLE sessions ADD COLUMN profile_ids TEXT`)
+	// sessions 表：fact_profile_id 指定事实提取专用模型（空=用第一个活跃模型）
+	db.Exec(`ALTER TABLE sessions ADD COLUMN fact_profile_id INTEGER`)
 }
 
 func main() {

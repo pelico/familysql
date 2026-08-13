@@ -75,6 +75,17 @@ func listActiveProfiles() ([]LLMProfile, error) {
 	return out, nil
 }
 
+// getProfileByID 按 ID 取单个 profile（用于事实提取专用模型）
+func getProfileByID(id int) (*LLMProfile, error) {
+	row := db.QueryRow("SELECT id, name, api_base, api_key, model, is_active, created_at FROM llm_profiles WHERE id = ?", id)
+	var p LLMProfile
+	err := row.Scan(&p.ID, &p.Name, &p.APIBase, &p.APIKey, &p.Model, &p.IsActive, &p.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // listAllProfiles 返回所有配置（API 返回时 api_key 脱敏）
 func listAllProfiles() ([]LLMProfile, error) {
 	rows, err := db.Query("SELECT id, name, api_base, api_key, model, is_active, created_at FROM llm_profiles ORDER BY id ASC")
