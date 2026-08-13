@@ -248,10 +248,10 @@
 
   /* ========== 快记展开区 ========== */
   .expand-box {
-    max-height: 0; overflow: hidden;
-    transition: max-height .35s cubic-bezier(.4,0,.2,1);
+    display: none;
+    overflow: hidden;
   }
-  .expand-box.open { max-height: 500px; }
+  .expand-box.open { display: block; }
   .expand-inner {
     padding: 14px 16px 16px;
     border-top: 1px solid rgba(15,23,42,0.06);
