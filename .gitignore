@@ -1,0 +1,30 @@
+# 数据库与本地数据（含真实记录，切勿提交）
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 编译产物
+main
+recorder
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go 测试/覆盖率
+*.out
+*.test
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 临时与备份
+*.bak
+*.tmp

@@ -48,7 +48,7 @@ func initDB() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, people TEXT, tags TEXT, 
 		severity_self INTEGER, content TEXT NOT NULL, status TEXT DEFAULT 'raw', created_at TEXT DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(content, tags, people, content=events, content_rowid=id);
+	CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram');
 	CREATE TABLE IF NOT EXISTS event_links (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, linked_event_id INTEGER, relation TEXT,
 		FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE, FOREIGN KEY(linked_event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -90,6 +90,17 @@ func initDB() {
 		INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
 	END;`
 	db.Exec(schema)
+
+	// ---- FTS 分词器迁移：从默认 unicode61 切换到 trigram（支持中文子串匹配）----
+	// 检查现有 events_fts 的 tokenize 参数，如果不是 trigram 就重建
+	var ftsTokenize string
+	err = db.QueryRow("SELECT tokenize FROM events_fts_config").Scan(&ftsTokenize)
+	if err == nil && ftsTokenize != "trigram" {
+		// 旧表存在且不是 trigram：DROP → 重建 → 回填数据
+		db.Exec("DROP TABLE events_fts")
+		db.Exec(`CREATE VIRTUAL TABLE events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram')`)
+		db.Exec(`INSERT INTO events_fts(rowid, content, tags, people) SELECT id, content, tags, people FROM events`)
+	}
 
 	// ---- 幂等列迁移（列已存在时 ALTER TABLE 会报错，静默忽略即可）----
 	// analyses 表：溯源字段 — 这条分析是哪个模式、哪个 prompt 版本、属于哪个会话

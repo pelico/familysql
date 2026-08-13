@@ -114,7 +114,7 @@ const factExtractSystemPrompt = `你的任务是事实提取员。只做两件�
 - 绝不做定性推断，绝不贴人格标签，绝不揣摩动机。看到"摔了碗"就写摔了碗，不要写"XX在生气"。
 - 人物名只能写原文/图片里出现的称呼（如"我妈"、"小王"、"照片里的中年女性"），猜不出就留空。
 - 时间：能从输入里读到（"昨天下午""2026-08-12 18:00"）就填；读不到就填当前时间，但要把 timestamp_uncertain=true。
-- 严重度：只填数字 1~5。轻微背景事=1，摩擦顶嘴=2，明确冲突=3，人身攻击/要挟=4，家暴/涉及违法=5；没有线索就填 1。
+- 严重度：不填。严重度是用户的主观自评，AI 没有资格代填。始终输出 0，由用户在审核面板里手动选择。
 - 标签：从输入里抓几个关键词（逗号分隔），没有就留空。
 - 最终输出必须是纯 JSON，严格匹配如下格式（不要加任何前置解释、不要用代码块包裹也可以）：
 {
@@ -124,7 +124,7 @@ const factExtractSystemPrompt = `你的任务是事实提取员。只做两件�
       "timestamp_uncertain": true,
       "people": "...",
       "tags": "...",
-      "severity": 1,
+      "severity": 0,
       "content": "只写行为本身，不写推断"
     }
   ],
@@ -200,18 +200,20 @@ func runFactExtract(userText, imageData string, profileID int) ([]FactCandidate,
 			ts = time.Now().Format(time.RFC3339)
 			uncertain = true
 		}
-		sev := f.Severity
-		if sev <= 0 {
-			sev = 1
-		}
-		if sev > 5 {
-			sev = 5
+		// severity 不预填：AI 返回 0 或负值时设为 nil，前端显示默认值 1 但标记为"待用户选择"
+		var sev *int
+		if f.Severity > 0 {
+			s := f.Severity
+			if s > 5 {
+				s = 5
+			}
+			sev = &s
 		}
 		cands = append(cands, FactCandidate{
 			SuggestedTimestamp: ts,
 			People:             f.People,
 			Tags:               f.Tags,
-			Severity:           &sev,
+			Severity:           sev,
 			Content:            strings.TrimSpace(f.Content),
 			Status:             "pending",
 			TimestampUncertain: uncertain,
