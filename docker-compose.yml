@@ -1,10 +1,76 @@
 services:
   event-recorder:
-    build: .
+    # Mac mini (Apple Silicon / M) 首次部署可以先拉 :amd64 → Rosetta 仿真即跑（构建 5 分钟出）
+    # 等 build-and-push job 完成（约 15 分钟）后换成 :latest → arm64 原生
+    image: ghcr.io/pelico/familysql:amd64
     container_name: personal-event-recorder
     ports:
       - "18080:18080"
     volumes:
-      # 将 data 目录挂载到宿主机当前目录下的 data 文件夹，实现数据持久化
+      # 数据持久化：SQLite 数据库会落在 ./data/database.db（可直接拷贝到 NAS 还原）
       - ./data:/app/data
+    environment:
+      # 首次部署推荐：在页面"AI 分析 → 模型配置"里填（api_key 存本地 DB、仅自身可读）。
+      # 如希望以环境变量预置，取消下面注释并填写（单模型场景，会以 "(默认)" profile 身份生效）：
+      # - LLM_API_BASE=https://api.deepseek.com/v1
+      # - LLM_API_KEY=sk-xxxx
+      # - LLM_MODEL=deepseek-chat
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:18080/api/events"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    # 备注：项目已设为 public → ghcr.io 镜像无需登录即可拉取
+    # 如需私有镜像：docker login ghcr.io -u pelico -p <PAT>
+
+  # 备份 sidecar：每天 03:00 (Asia/Shanghai) 用 sqlite3 .backup 在线导出
+  # 备份落在宿主机 ./backups/ 目录，gzip 压缩，保留 30 天
+  # 脚本内联在 entrypoint 里，Mac mini 上不需要额外准备任何文件
+  backup:
+    image: alpine:latest
+    container_name: personal-event-recorder-backup
+    depends_on:
+      - event-recorder
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/data:ro            # 只读挂载，备份进程绝不写主库
+      - ./backups:/backups
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache sqlite tzdata > /dev/null 2>&1
+
+        cat > /backup-db.sh << 'EOSH'
+        #!/bin/sh
+        set -e
+        DB_PATH="/data/database.db"
+        BACKUP_DIR="/backups"
+        RETENTION_DAYS=30
+        mkdir -p "$$BACKUP_DIR"
+        if [ ! -f "$$DB_PATH" ]; then
+          echo "[$$(date -u +%FT%TZ)] 数据库文件不存在: $$DB_PATH（首次启动还未创建？跳过）"
+          exit 0
+        fi
+        STAMP=$$(date -u +%Y%m%d-%H%M%SZ)
+        OUT="$$BACKUP_DIR/db-$$STAMP.db"
+        sqlite3 "$$DB_PATH" ".backup '$$OUT'"
+        gzip -f "$$OUT"
+        echo "[$$(date -u +%FT%TZ)] 备份完成: $${OUT}.gz ($$(du -h $${OUT}.gz | cut -f1))"
+        find "$$BACKUP_DIR" -name "db-*.db.gz" -mtime +$$RETENTION_DAYS -delete
+        echo "[$$(date -u +%FT%TZ)] 已清理 $$RETENTION_DAYS 天前的旧备份"
+        EOSH
+        chmod +x /backup-db.sh
+
+        # 注册每天 03:00 的 cron
+        echo '0 3 * * * /backup-db.sh >> /var/log/backup.log 2>&1' > /etc/crontabs/root
+        echo "[$(date)] backup sidecar 已启动，计划: 每天 03:00 (Asia/Shanghai)，备份保留 30 天"
+        # 启动时立刻跑一次，验证备份链路通 + 首日就有备份可用
+        /backup-db.sh || true
+        # crond -l 8 把任务执行日志输出到 stderr（docker logs 能看到）
+        crond -l 8 -f
     restart: unless-stopped

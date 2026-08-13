@@ -9,16 +9,56 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # 镜像名使用小写的仓库名（GHCR 要求小写）
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
+  # ========== Job 1: 仅 amd64（5 分钟出镜像，测试用） ==========
+  #   - 打 :amd64 固定 tag
+  #   - :amd64 永远指向 main 分支上最近一次成功构建的 amd64 镜像
+  build-amd64-fast:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write  # 推送到 GHCR 所需
+      packages: write
+    # 分支 push 才跑；打 tag 时让双架构 job 负责
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64 only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+  # ========== Job 2: 双架构（amd64 + arm64，15 分钟，正式发布） ==========
+  #   - :latest / 分支名 / semver / sha 完整 meta 标签
+  #   - 依赖 amd64 先跑完（避免 push :latest 冲突）
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: build-amd64-fast
+    permissions:
+      contents: read
+      packages: write
+    # tag 推送时可以直接跑（上面 fast job 会跳过），主分支 push 需要等 fast
+    if: |
+      always() &&
+      (needs.build-amd64-fast.result == 'success' || needs.build-amd64-fast.result == 'skipped')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,7 +88,7 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .

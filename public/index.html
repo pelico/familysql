@@ -1,329 +1,1860 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>家庭事件记录与分析系统</title>
-    <!-- 引入 Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .tag-chip {
-            display: inline-flex;
-            align-items: center;
-            background-color: #e2e8f0;
-            color: #1a202c;
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            margin: 0.25rem;
-        }
-        .tag-chip button {
-            margin-left: 0.375rem;
-            color: #4a5568;
-            font-weight: bold;
-        }
-        .tag-chip button:hover {
-            color: #e53e3e;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>观察笔记 · 事实记录与分析系统</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* ========== 基础重置与字体 ========== */
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Inter", system-ui, sans-serif;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ========== 多层背景：径向渐变 + 细微噪点感 ========== */
+  body {
+    min-height: 100vh;
+    padding-bottom: env(safe-area-inset-bottom);
+    background-color: #f8fafc;
+    background-image:
+      radial-gradient(1200px 600px at 85% -10%, rgba(99,102,241,0.12), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,0.10), transparent 55%),
+      radial-gradient(800px 400px at 50% 110%, rgba(236,72,153,0.08), transparent 60%),
+      linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    background-attachment: fixed;
+  }
+
+  /* ========== 毛玻璃头部 ========== */
+  .app-header {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    background: rgba(255,255,255,0.70);
+    border-bottom: 1px solid rgba(15,23,42,0.06);
+  }
+  .header-inner {
+    max-width: 840px; margin: 0 auto;
+    padding: 14px 16px 12px;
+  }
+  .brand-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .brand-mark {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .brand-logo {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#ec4899 100%);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow:
+      0 4px 12px rgba(99,102,241,0.28),
+      0 1px 3px rgba(15,23,42,0.08),
+      inset 0 1px 0 rgba(255,255,255,0.2);
+    position: relative;
+  }
+  .brand-logo::after {
+    content: ""; position: absolute; inset: 0; border-radius: 12px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.22), transparent 55%);
+    pointer-events: none;
+  }
+  .brand-title {
+    font-size: 17px; font-weight: 700; letter-spacing: -0.01em;
+    background: linear-gradient(135deg,#0f172a 0%,#334155 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    line-height: 1.2;
+  }
+  .brand-sub {
+    font-size: 11px; color: #64748b; margin-top: 2px; font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .brand-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: linear-gradient(135deg,#10b981,#059669);
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+  }
+
+  /* ========== 分段控制器 Tab（带滑动指示器） ========== */
+  .tab-bar-wrapper {
+    position: relative;
+    background: rgba(15,23,42,0.04);
+    border-radius: 14px;
+    padding: 4px;
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  }
+  .tab-indicator {
+    position: absolute; top: 4px; bottom: 4px; width: calc(20% - 2px);
+    background: white;
+    border-radius: 10px;
+    box-shadow:
+      0 2px 6px rgba(15,23,42,0.08),
+      0 1px 2px rgba(15,23,42,0.04),
+      0 0 0 1px rgba(15,23,42,0.04);
+    transition: transform .32s cubic-bezier(.4,0,.2,1);
+    pointer-events: none;
+  }
+  .tab-btn {
+    position: relative; z-index: 1;
+    padding: 9px 4px; border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    color: #64748b; white-space: nowrap;
+    transition: color .25s ease;
+    border: none; background: transparent; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .tab-btn.active { color: #4338ca; }
+  .tab-btn svg { width: 15px; height: 15px; stroke-width: 2.2; }
+  .tab-panel { display: none; animation: panelIn .35s cubic-bezier(.4,0,.2,1); }
+  .tab-panel.active { display: block; }
+  @keyframes panelIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ========== 主体容器 ========== */
+  .main-wrap {
+    max-width: 840px; margin: 0 auto;
+    padding: 18px 16px 48px;
+  }
+  .section-space > * + * { margin-top: 18px; }
+
+  /* ========== 分组标题 ========== */
+  .group-title {
+    font-size: 11px; font-weight: 600;
+    color: #64748b; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0 4px 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .group-title::before {
+    content: ""; width: 3px; height: 11px; border-radius: 2px;
+    background: linear-gradient(180deg,#6366f1,#8b5cf6);
+  }
+
+  /* ========== 玻璃卡片 ========== */
+  .glass-card {
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.9);
+    box-shadow:
+      0 1px 2px rgba(15,23,42,0.04),
+      0 4px 16px rgba(15,23,42,0.05),
+      0 1px 0 rgba(255,255,255,0.8) inset;
+    overflow: hidden;
+    position: relative;
+  }
+  .glass-card::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.5), transparent 40%);
+    pointer-events: none; border-radius: inherit;
+  }
+  .glass-card > * { position: relative; }
+
+  /* ========== 列表行 ========== */
+  .list-row {
+    display: flex; align-items: center; gap: 13px;
+    padding: 14px 16px; min-height: 60px;
+    position: relative;
+  }
+  .list-row + .list-row::before {
+    content: ""; position: absolute; top: 0; left: 61px; right: 16px;
+    height: 1px; background: linear-gradient(90deg, transparent, rgba(15,23,42,0.06) 10%, rgba(15,23,42,0.06) 90%, transparent);
+  }
+  .list-row-click { cursor: pointer; transition: background .2s; }
+  .list-row-click:hover { background: rgba(99,102,241,0.03); }
+  .list-row-click:active { background: rgba(99,102,241,0.06); }
+
+  /* ========== 渐变图标容器 ========== */
+  .icon-wrap {
+    width: 36px; height: 36px; flex-shrink: 0;
+    border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    position: relative;
+    box-shadow:
+      0 2px 6px rgba(15,23,42,0.1),
+      0 1px 0 rgba(255,255,255,0.35) inset;
+  }
+  .icon-wrap svg { width: 18px; height: 18px; color: white; stroke-width: 2.2; }
+  .icon-wrap::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,0.28), transparent 55%);
+    pointer-events: none;
+  }
+  .g-indigo  { background: linear-gradient(135deg,#6366f1,#4f46e5); }
+  .g-amber   { background: linear-gradient(135deg,#f59e0b,#d97706); }
+  .g-emerald { background: linear-gradient(135deg,#10b981,#059669); }
+  .g-rose    { background: linear-gradient(135deg,#f43f5e,#e11d48); }
+  .g-sky     { background: linear-gradient(135deg,#0ea5e9,#0284c7); }
+  .g-violet  { background: linear-gradient(135deg,#8b5cf6,#7c3aed); }
+  .g-teal    { background: linear-gradient(135deg,#14b8a6,#0d9488); }
+
+  /* ========== 行文字 ========== */
+  .row-body { flex: 1 1 auto; min-width: 0; }
+  .row-title {
+    font-size: 14.5px; font-weight: 600; color: #0f172a;
+    line-height: 1.35; letter-spacing: -0.005em;
+  }
+  .row-sub {
+    font-size: 12px; color: #64748b; margin-top: 3px;
+    line-height: 1.5;
+  }
+  .chev {
+    flex-shrink: 0; color: #cbd5e1;
+    display: flex; align-items: center;
+  }
+  .chev svg { width: 16px; height: 16px; stroke-width: 2.5; }
+
+  /* ========== 输入控件 ========== */
+  .field {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px; line-height: 1.5;
+    background: #f8fafc;
+    border: 1px solid rgba(15,23,42,0.08);
+    border-radius: 11px;
+    transition: all .2s cubic-bezier(.4,0,.2,1);
+    color: #0f172a;
+    font-family: inherit;
+  }
+  .field::placeholder { color: #94a3b8; }
+  .field:hover { background: #fff; border-color: rgba(15,23,42,0.12); }
+  .field:focus {
+    outline: none; background: #fff;
+    border-color: #6366f1;
+    box-shadow:
+      0 0 0 4px rgba(99,102,241,0.12),
+      0 1px 2px rgba(15,23,42,0.04);
+  }
+  textarea.field { resize: vertical; min-height: 96px; }
+
+  /* ========== 芯片标签 ========== */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4.5px 11px; border-radius: 9999px;
+    font-size: 11.5px; font-weight: 600;
+    margin: 2.5px 2.5px;
+    transition: transform .12s, box-shadow .2s;
+  }
+  .pill:active { transform: scale(0.96); }
+  .p-indigo  { background: rgba(99,102,241,0.10); color: #4338ca; box-shadow: inset 0 0 0 1px rgba(99,102,241,0.15); }
+  .p-emerald { background: rgba(16,185,129,0.10); color: #065f46; box-shadow: inset 0 0 0 1px rgba(16,185,129,0.15); }
+  .p-amber   { background: rgba(245,158,11,0.12); color: #92400e; box-shadow: inset 0 0 0 1px rgba(245,158,11,0.18); }
+  .p-rose    { background: rgba(244,63,94,0.10);  color: #9f1239; box-shadow: inset 0 0 0 1px rgba(244,63,94,0.15); }
+  .p-slate   { background: rgba(100,116,139,0.08); color: #475569; box-shadow: inset 0 0 0 1px rgba(100,116,139,0.12); }
+  .pill-close {
+    cursor: pointer; opacity: .7; font-weight: 700; font-size: 13px;
+    line-height: 1; padding: 0 1px;
+  }
+  .pill-close:hover { opacity: 1; }
+
+  .sev-badge-1 { background: rgba(16,185,129,0.12); color: #065f46; box-shadow: inset 0 0 0 1px rgba(16,185,129,0.18); }
+  .sev-badge-2 { background: rgba(234,179,8,0.14);  color: #854d0e; box-shadow: inset 0 0 0 1px rgba(234,179,8,0.20); }
+  .sev-badge-3 { background: rgba(249,115,22,0.14);  color: #9a3412; box-shadow: inset 0 0 0 1px rgba(249,115,22,0.20); }
+  .sev-badge-4 { background: rgba(239,68,68,0.14);   color: #991b1b; box-shadow: inset 0 0 0 1px rgba(239,68,68,0.20); }
+  .sev-badge-5 { background: rgba(225,29,72,0.16);   color: #9f1239; box-shadow: inset 0 0 0 1px rgba(225,29,72,0.22); font-weight: 700; }
+
+  /* ========== 按钮 ========== */
+  .btn-primary {
+    width: 100%;
+    padding: 12.5px 18px;
+    border-radius: 12px;
+    border: none; cursor: pointer;
+    font-weight: 600; font-size: 14px; letter-spacing: -0.005em;
+    color: white;
+    background: linear-gradient(135deg,#6366f1 0%,#4f46e5 100%);
+    box-shadow:
+      0 4px 14px rgba(79,70,229,0.28),
+      0 1px 3px rgba(15,23,42,0.08),
+      inset 0 1px 0 rgba(255,255,255,0.2);
+    transition: all .18s cubic-bezier(.4,0,.2,1);
+    position: relative; overflow: hidden;
+  }
+  .btn-primary::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 55%);
+    pointer-events: none;
+  }
+  .btn-primary:hover {
+    box-shadow:
+      0 6px 20px rgba(79,70,229,0.34),
+      0 1px 3px rgba(15,23,42,0.08),
+      inset 0 1px 0 rgba(255,255,255,0.2);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active { transform: translateY(0); filter: brightness(0.97); }
+  .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; filter: none; }
+
+  .btn-ghost {
+    padding: 9.5px 14px;
+    border-radius: 10px;
+    border: none; cursor: pointer;
+    font-weight: 600; font-size: 12.5px;
+    background: rgba(15,23,42,0.05); color: #334155;
+    transition: all .18s;
+  }
+  .btn-ghost:hover { background: rgba(15,23,42,0.08); }
+  .btn-danger {
+    padding: 9.5px 14px; border-radius: 10px; border: none; cursor: pointer;
+    font-weight: 600; font-size: 12.5px;
+    background: rgba(239,68,68,0.10); color: #b91c1c;
+    transition: all .18s;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.15); }
+
+  /* ========== 快记展开区 ========== */
+  .expand-box {
+    max-height: 0; overflow: hidden;
+    transition: max-height .35s cubic-bezier(.4,0,.2,1);
+  }
+  .expand-box.open { max-height: 500px; }
+  .expand-inner {
+    padding: 14px 16px 16px;
+    border-top: 1px solid rgba(15,23,42,0.06);
+    margin-top: 0;
+  }
+
+  /* ========== 消息提示 ========== */
+  .msg-box {
+    display: none;
+    padding: 9px 12px; border-radius: 10px;
+    font-size: 12px; font-weight: 500; text-align: center;
+    margin-top: 10px;
+  }
+  .msg-box.ok { display: block; background: rgba(16,185,129,0.10); color: #065f46; box-shadow: inset 0 0 0 1px rgba(16,185,129,0.18); }
+  .msg-box.err { display: block; background: rgba(239,68,68,0.10); color: #991b1b; box-shadow: inset 0 0 0 1px rgba(239,68,68,0.18); }
+
+  /* ========== 滑动开关 ========== */
+  .switch { position: relative; width: 44px; height: 28px; flex-shrink: 0; }
+  .switch input { display: none; }
+  .sw-track {
+    position: absolute; inset: 0; border-radius: 9999px;
+    background: rgba(100,116,139,0.25);
+    transition: background .25s ease;
+    cursor: pointer;
+  }
+  .sw-thumb {
+    position: absolute; left: 3px; top: 3px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 4px rgba(15,23,42,0.16), 0 1px 0 rgba(255,255,255,0.8) inset;
+    transition: transform .25s cubic-bezier(.4,0,.2,1), width .2s;
+  }
+  .switch input:checked + .sw-track {
+    background: linear-gradient(135deg,#6366f1,#4f46e5);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .switch input:checked + .sw-track + .sw-thumb { transform: translateX(16px); }
+  .switch:active .sw-thumb { width: 26px; }
+  .switch input:checked:active .sw-thumb { transform: translateX(12px); }
+
+  /* ========== 事件卡片（时间轴卡片） ========== */
+  .ev-card {
+    background: rgba(255,255,255,0.88);
+    backdrop-filter: blur(8px);
+    border-radius: 16px;
+    padding: 15px 16px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(255,255,255,0.9);
+    box-shadow:
+      0 1px 2px rgba(15,23,42,0.04),
+      0 4px 12px rgba(15,23,42,0.05);
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow .2s, transform .2s;
+  }
+  .ev-card:hover {
+    box-shadow:
+      0 1px 2px rgba(15,23,42,0.05),
+      0 8px 24px rgba(15,23,42,0.07);
+  }
+  .ev-card.incomplete {
+    border-color: rgba(245,158,11,0.35);
+    background:
+      linear-gradient(180deg, rgba(245,158,11,0.05), rgba(255,255,255,0.88) 35%);
+  }
+  .ev-card.incomplete::before {
+    content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+    background: linear-gradient(180deg,#f59e0b,#d97706);
+  }
+  .ev-card.warn-calib {
+    border-color: rgba(239,68,68,0.30);
+    background:
+      linear-gradient(180deg, rgba(239,68,68,0.04), rgba(255,255,255,0.88) 35%);
+  }
+  .ev-card.warn-calib::before {
+    content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+    background: linear-gradient(180deg,#ef4444,#e11d48);
+  }
+  .ev-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .ev-idtime {
+    font-size: 11px; color: #94a3b8; font-weight: 500;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .ev-idtime svg { width: 12px; height: 12px; stroke-width: 2; }
+  .ev-content {
+    font-size: 14px; color: #0f172a; line-height: 1.7;
+    letter-spacing: -0.003em;
+  }
+  .ev-tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 3px; }
+  .ev-actions {
+    margin-top: 12px; padding-top: 11px;
+    border-top: 1px dashed rgba(15,23,42,0.08);
+    display: flex; gap: 18px;
+  }
+  .ev-actions button {
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+    padding: 0; background: none; border: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    transition: color .18s;
+  }
+  .ev-actions button svg { width: 13px; height: 13px; stroke-width: 2.2; }
+  .act-edit   { color: #4f46e5; }
+  .act-edit:hover   { color: #4338ca; }
+  .act-hist   { color: #64748b; }
+  .act-hist:hover   { color: #334155; }
+  .act-recheck{ color: #4f46e5; }
+
+  .correct-box {
+    margin-top: 10px; padding: 13px;
+    background: rgba(99,102,241,0.04);
+    border-radius: 12px;
+    border: 1px solid rgba(99,102,241,0.10);
+  }
+  .hist-box {
+    margin-top: 10px; padding: 10px 12px;
+    background: rgba(15,23,42,0.03);
+    border-radius: 10px;
+    font-size: 11.5px; color: #64748b; line-height: 1.6;
+  }
+  .hist-box .hc { border-bottom: 1px dashed rgba(15,23,42,0.08); padding: 6px 0; }
+  .hist-box .hc:last-child { border-bottom: none; }
+
+  /* ========== 严重度滑块 ========== */
+  .sev-slider {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg,
+      #10b981 0%, #10b981 20%,
+      #eab308 20%, #eab308 40%,
+      #f97316 40%, #f97316 60%,
+      #ef4444 60%, #ef4444 80%,
+      #e11d48 80%, #e11d48 100%);
+    outline: none; cursor: pointer;
+  }
+  .sev-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: white; cursor: pointer;
+    border: 2px solid #6366f1;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.12);
+    transition: transform .15s;
+  }
+  .sev-slider::-webkit-slider-thumb:hover { transform: scale(1.12); }
+  .sev-slider::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: white; cursor: pointer; border: 2px solid #6366f1;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.12);
+  }
+  .sev-labels {
+    display: flex; justify-content: space-between;
+    margin-top: 6px;
+    font-size: 10.5px; color: #94a3b8; font-weight: 500;
+  }
+
+  /* ========== 模式选择卡片 ========== */
+  .mode-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+  }
+  .mode-card {
+    padding: 12px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    background: rgba(15,23,42,0.04);
+    transition: all .2s cubic-bezier(.4,0,.2,1);
+    text-align: center;
+    position: relative;
+  }
+  .mode-card:hover { background: rgba(15,23,42,0.06); transform: translateY(-1px); }
+  .mode-card.selected {
+    background: linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));
+    border-color: rgba(99,102,241,0.45);
+    box-shadow: 0 2px 8px rgba(99,102,241,0.14);
+  }
+  .mode-card.selected::after {
+    content: ""; position: absolute; top: 6px; right: 6px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+  }
+  .mode-icon {
+    width: 30px; height: 30px; margin: 0 auto 6px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(99,102,241,0.10);
+  }
+  .mode-card.selected .mode-icon {
+    background: linear-gradient(135deg,#6366f1,#4f46e5);
+  }
+  .mode-icon svg { width: 16px; height: 16px; stroke-width: 2.2; color: #6366f1; }
+  .mode-card.selected .mode-icon svg { color: white; }
+  .mode-name { font-size: 12px; font-weight: 600; color: #334155; }
+  .mode-card.selected .mode-name { color: #4338ca; }
+
+  /* ========== 模型 profile picker ========== */
+  .prof-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 11px;
+    border-radius: 11px;
+    cursor: pointer;
+    transition: all .18s;
+    border: 1.5px solid transparent;
+  }
+  .prof-item:hover { background: rgba(15,23,42,0.03); }
+  .prof-item.checked {
+    background: rgba(99,102,241,0.06);
+    border-color: rgba(99,102,241,0.35);
+  }
+  .prof-check {
+    width: 20px; height: 20px; flex-shrink: 0;
+    border-radius: 6px;
+    border: 1.5px solid #cbd5e1;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+    background: white;
+  }
+  .prof-item.checked .prof-check {
+    background: linear-gradient(135deg,#6366f1,#4f46e5);
+    border-color: transparent;
+  }
+  .prof-check svg { width: 12px; height: 12px; color: transparent; stroke-width: 3; }
+  .prof-item.checked .prof-check svg { color: white; }
+  .prof-avatar {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg,#0ea5e9,#0284c7);
+    color: white; font-size: 11px; font-weight: 700;
+  }
+
+  /* ========== 回复卡片（多模型并排） ========== */
+  .reply-grid {
+    display: grid; grid-template-columns: 1fr; gap: 10px;
+  }
+  @media (min-width: 640px) {
+    .reply-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .reply-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  }
+  .reply-card {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(15,23,42,0.08);
+    border-radius: 14px; padding: 13px;
+    position: relative; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 3px 10px rgba(15,23,42,0.04);
+  }
+  .reply-card.err {
+    background: rgba(239,68,68,0.05);
+    border-color: rgba(239,68,68,0.25);
+  }
+  .reply-card.err::before {
+    content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+    background: linear-gradient(180deg,#ef4444,#e11d48);
+  }
+  .reply-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    padding-bottom: 9px;
+    border-bottom: 1px dashed rgba(15,23,42,0.08);
+  }
+  .reply-head .ra {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: white;
+    background: linear-gradient(135deg,#8b5cf6,#7c3aed);
+  }
+  .reply-head .rname { font-size: 12px; font-weight: 700; color: #4338ca; }
+  .reply-head .rmodel { font-size: 10.5px; color: #94a3b8; font-weight: 500; }
+  .reply-ref { margin-left: auto; font-size: 10.5px; color: #94a3b8; font-weight: 500; }
+  .reply-body {
+    white-space: pre-wrap; word-break: break-word;
+    font-family: inherit; font-size: 13px;
+    color: #0f172a; line-height: 1.75;
+  }
+  .reply-err { font-size: 12.5px; color: #b91c1c; font-weight: 500; }
+  .reply-save {
+    margin-top: 10px; padding-top: 9px;
+    border-top: 1px dashed rgba(15,23,42,0.08);
+  }
+  .reply-save button {
+    background: none; border: none; cursor: pointer;
+    font-size: 11.5px; font-weight: 600; color: #4f46e5;
+    padding: 0; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .reply-save button:hover { color: #4338ca; }
+  .reply-save svg { width: 12px; height: 12px; stroke-width: 2.2; }
+
+  /* 用户消息气泡 */
+  .user-bubble {
+    background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.06));
+    border: 1px solid rgba(99,102,241,0.12);
+    color: #1e293b;
+    font-size: 14px; line-height: 1.7;
+    padding: 11px 14px;
+    border-radius: 14px;
+    border-top-left-radius: 4px;
+  }
+
+  /* ========== 校准统计卡片 ========== */
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  @media (min-width: 640px) {
+    .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .stat-card {
+    border-radius: 14px;
+    padding: 14px;
+    background: white;
+    border: 1px solid rgba(15,23,42,0.06);
+    box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 3px 10px rgba(15,23,42,0.04);
+    position: relative; overflow: hidden;
+  }
+  .stat-card.warn {
+    background: linear-gradient(180deg, rgba(245,158,11,0.06), white 60%);
+    border-color: rgba(245,158,11,0.30);
+  }
+  .stat-icon {
+    width: 32px; height: 32px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .stat-icon svg { width: 16px; height: 16px; color: white; stroke-width: 2.2; }
+  .stat-icon::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,0.28), transparent 55%);
+  }
+  .stat-label { font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 0.02em; }
+  .stat-value {
+    font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
+    color: #0f172a; margin-top: 3px; line-height: 1.1;
+    font-family: "SF Pro Display", -apple-system, system-ui, sans-serif;
+  }
+  .stat-card.warn .stat-value { color: #b45309; }
+  .stat-spark {
+    position: absolute; top: 10px; right: 10px;
+    opacity: .25;
+  }
+  .stat-spark svg { width: 40px; height: 22px; }
+
+  /* ========== 细节（折叠区） ========== */
+  details.dd-card > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+  details.dd-card > summary::-webkit-details-marker { display: none; }
+  details.dd-card > summary .chev svg {
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+  }
+  details.dd-card[open] > summary .chev svg { transform: rotate(90deg); }
+
+  /* ========== 空状态 ========== */
+  .empty-state {
+    padding: 32px 16px;
+    text-align: center;
+    color: #94a3b8;
+  }
+  .empty-state .es-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    margin: 0 auto 12px;
+    background: rgba(15,23,42,0.04);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .empty-state .es-icon svg { width: 22px; height: 22px; stroke-width: 1.8; color: #94a3b8; }
+  .empty-state .es-title { font-size: 13px; font-weight: 600; color: #64748b; margin-bottom: 3px; }
+  .empty-state .es-sub { font-size: 11.5px; color: #94a3b8; line-height: 1.6; }
+
+  /* ========== 配置列表条目 ========== */
+  .prof-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px;
+    border-radius: 11px;
+    background: rgba(15,23,42,0.03);
+  }
+  .prof-row + .prof-row { margin-top: 7px; }
+
+  /* ========== 校准时间线装饰 ========== */
+  .cal-item {
+    padding-left: 20px;
+    position: relative;
+  }
+  .cal-item::before {
+    content: ""; position: absolute; left: 7px; top: 18px; bottom: -10px;
+    width: 2px; background: linear-gradient(180deg, rgba(99,102,241,0.4), rgba(99,102,241,0));
+  }
+  .cal-item:last-child::before { display: none; }
+  .cal-item::after {
+    content: ""; position: absolute; left: 0; top: 12px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: white;
+    border: 2.5px solid #6366f1;
+    box-shadow: 0 0 0 4px rgba(99,102,241,0.10);
+  }
+  .cal-item.warn::after {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 4px rgba(245,158,11,0.12);
+  }
+  .cal-item.danger::after {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 4px rgba(239,68,68,0.12);
+  }
+
+</style>
 </head>
-<body class="bg-gray-50 text-gray-900 font-sans antialiased min-h-screen pb-12">
+<body>
 
-    <div class="max-w-xl mx-auto px-4 py-8">
-        <header class="mb-8 text-center">
-            <h1 class="text-2xl font-bold tracking-tight text-gray-900">家庭观察记录</h1>
-            <p class="text-xs text-gray-500 mt-1">数据加密本地存储 · 物理层绝不篡改</p>
-        </header>
-
-        <!-- 填报表单卡片 -->
-        <main class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <form id="eventForm" class="p-6 space-y-5">
-                
-                <!-- 时间选择 (带重置当前时间按钮) -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">发生时间</label>
-                    <div class="flex space-x-2">
-                        <input type="datetime-local" id="timestamp" required
-                               class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border">
-                        <button type="button" id="setCurrentTime"
-                                class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium px-3 rounded-lg border border-gray-300 transition">
-                            当前
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 涉及人物 (支持新增) -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">涉及人物</label>
-                    <div class="space-y-2">
-                        <div id="peopleChips" class="flex flex-wrap -m-1"></div>
-                        <div class="flex space-x-2">
-                            <select id="peopleSelect" class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border">
-                                <option value="">-- 选择已有或输入新增 --</option>
-                            </select>
-                            <input type="text" id="newPerson" placeholder="输入新人物" 
-                                   class="block w-1/3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border">
-                            <button type="button" id="addPersonBtn"
-                                    class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-4 rounded-lg border border-indigo-200 transition text-sm">
-                                ＋
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 标签分类 (支持新增) -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">标签分类</label>
-                    <div class="space-y-2">
-                        <div id="tagsChips" class="flex flex-wrap -m-1"></div>
-                        <div class="flex space-x-2">
-                            <select id="tagsSelect" class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border">
-                                <option value="">-- 选择已有或输入新增 --</option>
-                            </select>
-                            <input type="text" id="newTag" placeholder="输入新标签" 
-                                   class="block w-1/3 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border">
-                            <button type="button" id="addTagBtn"
-                                    class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-4 rounded-lg border border-indigo-200 transition text-sm">
-                                ＋
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 严重度滑块 -->
-                <div>
-                    <div class="flex justify-between items-center mb-1">
-                        <label class="block text-sm font-semibold text-gray-700">严重度级别 (1-5)</label>
-                        <span id="severityVal" class="text-sm font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">1 (轻微)</span>
-                    </div>
-                    <input type="range" id="severity_self" min="1" max="5" value="1" step="1"
-                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-                    <div class="flex justify-between text-[10px] text-gray-400 px-1 mt-1">
-                        <span>1: 背景噪音</span>
-                        <span>3: 爆发冲突</span>
-                        <span>5: 系统重构阈值</span>
-                    </div>
-                </div>
-
-                <!-- 事件内容 -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">事件详情</label>
-                    <textarea id="content" rows="4" required placeholder="如实记录具体发生的物理事实、言论及客观场景，不夹杂主观揣测与情绪偏见..."
-                              class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2.5 border"></textarea>
-                </div>
-
-                <!-- 提示/确认区域 -->
-                <div id="messageBox" class="hidden p-3 rounded-lg text-sm text-center"></div>
-
-                <!-- 提交按钮 -->
-                <button type="submit" 
-                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow transition duration-150 ease-in-out">
-                    写入原始档案 (不可撤销)
-                </button>
-            </form>
-        </main>
+<!-- =================== HEADER =================== -->
+<header class="app-header">
+  <div class="header-inner">
+    <div class="brand-row">
+      <div class="brand-mark">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="text-white" style="width:20px;height:20px;stroke-width:2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">观察笔记</div>
+          <div class="brand-sub">
+            <span class="brand-dot"></span>
+            本地存储 · 审计留痕 · 结论可推翻
+          </div>
+        </div>
+      </div>
+      <div style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fef3c7,#fde68a);box-shadow:0 2px 6px rgba(245,158,11,0.20),inset 0 1px 0 rgba(255,255,255,0.6);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#92400e" style="width:19px;height:19px;stroke-width:2.2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/>
+        </svg>
+      </div>
     </div>
 
-    <!-- 前端交互逻辑 -->
-    <script>
-        // 状态管理
-        const state = {
-            selectedPeople: [],
-            selectedTags: [],
-            availablePeople: [],
-            availableTags: []
-        };
+    <div class="tab-bar-wrapper" id="tabBar">
+      <div class="tab-indicator" id="tabIndicator" style="transform: translateX(2px);"></div>
+      <button class="tab-btn active" data-tab="record" data-idx="0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125"/></svg>
+        记录
+      </button>
+      <button class="tab-btn" data-tab="timeline" data-idx="1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        回顾
+      </button>
+      <button class="tab-btn" data-tab="analysis" data-idx="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/></svg>
+        分析
+      </button>
+      <button class="tab-btn" data-tab="patterns" data-idx="3">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"/></svg>
+        模式
+      </button>
+      <button class="tab-btn" data-tab="calibration" data-idx="4">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+        校准
+      </button>
+    </div>
+  </div>
+</header>
 
-        const severityLabels = {
-            1: "1 (背景噪音)",
-            2: "2 (轻度摩擦)",
-            3: "3 (中度冲突)",
-            4: "4 (重度投毒)",
-            5: "5 (系统重构触发)"
-        };
+<!-- =================== MAIN =================== -->
+<main class="main-wrap section-space">
 
-        // DOM 元素
-        const timestampInput = document.getElementById('timestamp');
-        const severityInput = document.getElementById('severity_self');
-        const severityVal = document.getElementById('severityVal');
-        const form = document.getElementById('eventForm');
-        const messageBox = document.getElementById('messageBox');
+<!-- ===== TAB 1: 记录 ===== -->
+<section id="tab-record" class="tab-panel active section-space">
 
-        // 设置当前本地时间并格式化为 datetime-local 支持的格式
-        function setLocalTime() {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            timestampInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
-        }
+  <!-- 快记入口 -->
+  <div class="glass-card">
+    <div class="list-row list-row-click" onclick="toggleQuickNote()">
+      <div class="icon-wrap g-amber">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">快记 · 随手写一条</div>
+        <div class="row-sub">只填内容即可，时间默认当前。人物/标签/严重度稍后补。</div>
+      </div>
+      <span class="chev" id="quickChev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+      </span>
+    </div>
+    <div class="expand-box" id="quickBox">
+      <div class="expand-inner">
+        <textarea id="quickContent" rows="3" class="field" placeholder="发生了什么？(最少 3 个字，时间默认当前)"></textarea>
+        <div style="display:flex;gap:9px;margin-top:10px;">
+          <button class="btn-primary" style="flex:1;padding:11px 16px;" onclick="submitQuick()">存入原始档案</button>
+          <button class="btn-ghost" onclick="toggleQuickNote()">取消</button>
+        </div>
+        <div id="quickMsg" class="msg-box"></div>
+      </div>
+    </div>
+  </div>
 
-        // 初始化加载已有的 People 和 Tags 字典
-        async function fetchMetadata() {
-            try {
-                const res = await fetch('/api/metadata');
-                const data = await res.json();
-                state.availablePeople = data.people || [];
-                state.availableTags = data.tags || [];
-                renderDropdowns();
-            } catch (err) {
-                console.error('Failed to fetch metadata', err);
-            }
-        }
+  <!-- 完整记录表单 -->
+  <div class="group-title">完整记录 · 可填全字段</div>
+  <form class="glass-card" onsubmit="submitFull(event)" id="eventForm">
 
-        function renderDropdowns() {
-            const pSelect = document.getElementById('peopleSelect');
-            const tSelect = document.getElementById('tagsSelect');
+    <div class="list-row">
+      <div class="icon-wrap g-sky">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">发生时间</div>
+        <div class="row-sub">默认当前，回溯记录时可手动修改</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <input type="datetime-local" id="timestamp" class="field" style="width:auto;padding:7px 10px;font-size:12px;">
+        <button type="button" class="btn-ghost" style="padding:7px 10px;font-size:12px;" onclick="setLocalTime()">现在</button>
+      </div>
+    </div>
 
-            // 渲染 People
-            pSelect.innerHTML = '<option value="">-- 选择已有人物 --</option>';
-            state.availablePeople.forEach(p => {
-                if (!state.selectedPeople.includes(p)) {
-                    pSelect.innerHTML += `<option value="${p}">${p}</option>`;
-                }
-            });
+    <div class="list-row" style="align-items:flex-start;">
+      <div class="icon-wrap g-violet" style="margin-top:2px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">涉及人物</div>
+        <div id="peopleChips" style="margin-top:7px;"></div>
+        <div style="display:flex;gap:7px;margin-top:8px;">
+          <select id="peopleSelect" class="field" style="padding:7px 10px;font-size:12px;flex:1;">
+            <option value="">选择已有…</option>
+          </select>
+          <input id="newPerson" placeholder="或新增" class="field" style="padding:7px 10px;font-size:12px;width:38%;">
+          <button type="button" class="btn-ghost" style="padding:7px 12px;font-size:13px;" onclick="addPerson()">＋</button>
+        </div>
+      </div>
+    </div>
 
-            // 渲染 Tags
-            tSelect.innerHTML = '<option value="">-- 选择已有标签 --</option>';
-            state.availableTags.forEach(t => {
-                if (!state.selectedTags.includes(t)) {
-                    tSelect.innerHTML += `<option value="${t}">${t}</option>`;
-                }
-            });
-        }
+    <div class="list-row" style="align-items:flex-start;">
+      <div class="icon-wrap g-emerald" style="margin-top:2px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">标签</div>
+        <div id="tagsChips" style="margin-top:7px;"></div>
+        <div style="display:flex;gap:7px;margin-top:8px;">
+          <select id="tagsSelect" class="field" style="padding:7px 10px;font-size:12px;flex:1;">
+            <option value="">选择已有…</option>
+          </select>
+          <input id="newTag" placeholder="或新增" class="field" style="padding:7px 10px;font-size:12px;width:38%;">
+          <button type="button" class="btn-ghost" style="padding:7px 12px;font-size:13px;" onclick="addTag()">＋</button>
+        </div>
+      </div>
+    </div>
 
-        function renderChips() {
-            const pChips = document.getElementById('peopleChips');
-            const tChips = document.getElementById('tagsChips');
+    <div class="list-row" style="align-items:flex-start;">
+      <div class="icon-wrap g-rose" style="margin-top:2px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+      </div>
+      <div class="row-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div class="row-title">严重度</div>
+          <span id="severityBadge" class="pill sev-badge-1">1 · 背景噪音</span>
+        </div>
+        <input type="range" id="severity_self" min="1" max="5" value="1" step="1" class="sev-slider" oninput="updateSev(this.value)">
+        <div class="sev-labels">
+          <span>背景</span><span>摩擦</span><span>冲突</span><span>投毒</span><span>阈值</span>
+        </div>
+      </div>
+    </div>
 
-            pChips.innerHTML = '';
-            state.selectedPeople.forEach(p => {
-                pChips.innerHTML += `
-                    <span class="tag-chip">
-                        ${p}
-                        <button type="button" onclick="removePerson('${p}')">&times;</button>
-                    </span>
-                `;
-            });
+    <div class="list-row" style="align-items:flex-start;">
+      <div class="icon-wrap g-indigo" style="margin-top:2px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">事件详情</div>
+        <div class="row-sub" style="margin-bottom:8px;">只写客观可观察的行为/言论/场景，不下主观定性。</div>
+        <textarea id="content" rows="4" required class="field" placeholder="如：XX在饭桌上说"你总是..."并将碗推到我面前"></textarea>
+      </div>
+    </div>
 
-            tChips.innerHTML = '';
-            state.selectedTags.forEach(t => {
-                tChips.innerHTML += `
-                    <span class="tag-chip bg-indigo-50 text-indigo-800">
-                        ${t}
-                        <button type="button" onclick="removeTag('${t}')">&times;</button>
-                    </span>
-                `;
-            });
+    <div style="padding:14px 16px 16px;">
+      <div id="fullMsg" class="msg-box"></div>
+      <button type="submit" class="btn-primary" style="margin-top:10px;">
+        <span style="display:inline-flex;align-items:center;gap:7px;position:relative;z-index:1;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:16px;height:16px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+          写入原始档案（不可撤销）
+        </span>
+      </button>
+    </div>
+  </form>
+</section>
 
-            renderDropdowns();
-        }
+<!-- ===== TAB 2: 回顾 ===== -->
+<section id="tab-timeline" class="tab-panel section-space">
 
-        // 外部移除函数绑定
-        window.removePerson = function(name) {
-            state.selectedPeople = state.selectedPeople.filter(p => p !== name);
-            renderChips();
-        };
+  <div class="glass-card" style="padding:14px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+      <input id="tlFilterPeople" placeholder="按人物筛选" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
+      <input id="tlFilterTags" placeholder="按标签筛选" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
+    </div>
+    <input id="tlSearch" placeholder="全文搜索..." class="field" style="padding:9px 11px;font-size:12.5px;" oninput="onSearchInput()">
+    <div style="margin-top:11px;display:flex;justify-content:space-between;align-items:center;">
+      <span id="tlHint" style="font-size:11.5px;color:#94a3b8;font-weight:500;">—</span>
+      <button class="btn-ghost" style="padding:7px 11px;font-size:11.5px;" onclick="loadTimeline()">
+        <span style="display:inline-flex;align-items:center;gap:4px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:12px;height:12px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+          刷新
+        </span>
+      </button>
+    </div>
+  </div>
 
-        window.removeTag = function(name) {
-            state.selectedTags = state.selectedTags.filter(t => t !== name);
-            renderChips();
-        };
+  <div id="timelineList"></div>
+</section>
 
-        // 绑定事件
-        document.getElementById('setCurrentTime').addEventListener('click', setLocalTime);
-        
-        severityInput.addEventListener('input', (e) => {
-            severityVal.innerText = severityLabels[e.target.value] || e.target.value;
-        });
+<!-- ===== TAB 3: 分析 ===== -->
+<section id="tab-analysis" class="tab-panel section-space">
 
-        // 快捷添加人物
-        document.getElementById('addPersonBtn').addEventListener('click', () => {
-            const input = document.getElementById('newPerson');
-            const val = input.value.trim();
-            if (val && !state.selectedPeople.includes(val)) {
-                state.selectedPeople.push(val);
-                if (!state.availablePeople.includes(val)) state.availablePeople.push(val);
-                input.value = '';
-                renderChips();
-            }
-        });
+  <!-- 模型配置管理 -->
+  <details class="glass-card dd-card" open>
+    <summary class="list-row">
+      <div class="icon-wrap g-violet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">模型配置 · 支持多模型并行</div>
+        <div class="row-sub" id="llmStatusLine">正在检测…</div>
+      </div>
+      <span class="chev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+      </span>
+    </summary>
+    <div style="padding:14px 16px 16px;border-top:1px solid rgba(15,23,42,0.06);">
+      <div id="profilesList" style="margin-bottom:14px;"></div>
+      <div style="padding-top:13px;border-top:1px dashed rgba(15,23,42,0.08);">
+        <div style="font-size:11.5px;font-weight:700;color:#475569;margin-bottom:9px;letter-spacing:0.03em;display:flex;align-items:center;gap:6px;">
+          <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#8b5cf6,#ec4899);"></span>
+          新增模型配置（OpenAI 兼容接口）
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <input id="pName" placeholder="显示名，如「GPT-4o」" class="field" style="padding:9px 11px;font-size:12.5px;">
+          <input id="pBase" placeholder="API Base，如 https://api.deepseek.com/v1" class="field" style="padding:9px 11px;font-size:12.5px;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+          <input id="pKey" placeholder="API Key（只存本地，显示脱敏）" class="field" style="padding:9px 11px;font-size:12.5px;" type="password">
+          <input id="pModel" placeholder="model，如 deepseek-chat" class="field" style="padding:9px 11px;font-size:12.5px;">
+        </div>
+        <button class="btn-primary" style="padding:11px 16px;" onclick="createProfile()">保存并激活为并行模型</button>
+      </div>
+    </div>
+  </details>
 
-        document.getElementById('peopleSelect').addEventListener('change', (e) => {
-            const val = e.target.value;
-            if (val && !state.selectedPeople.includes(val)) {
-                state.selectedPeople.push(val);
-                renderChips();
-            }
-        });
+  <!-- 新建会话 -->
+  <div class="glass-card">
+    <div class="list-row">
+      <div class="icon-wrap g-indigo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.477-1.122a.9.9 0 01-.279-.9 8.986 8.986 0 00.167-1.858C5.25 7.973 8.954 4.5 13.5 4.5c3.833 0 7.059 2.43 8.192 5.759.398.114.746.376.98.732.233.356.328.78.271 1.203-.057.422-.296.798-.646 1.066"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">开始新分析会话</div>
+        <div class="row-sub">选分析模式，以及要并行调用的模型。</div>
+      </div>
+    </div>
+    <div style="padding:0 16px 16px;">
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#475569;margin-bottom:8px;letter-spacing:0.03em;display:flex;align-items:center;gap:6px;">
+          <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#6366f1,#0ea5e9);"></span>
+          分析模式
+        </div>
+        <div id="modeSelector" class="mode-grid"></div>
+        <p id="modeDesc" style="font-size:11.5px;color:#64748b;margin-top:9px;line-height:1.6;padding:0 2px;"></p>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#475569;margin-bottom:8px;letter-spacing:0.03em;display:flex;align-items:center;gap:6px;">
+          <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#10b981,#14b8a6);"></span>
+          并行调用的模型（多选并排对比）
+        </div>
+        <div id="profilePicker"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+        <input id="sessPeople" placeholder="按人物限定事实（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
+        <input id="sessTags" placeholder="按标签限定事实（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
+      </div>
+      <button class="btn-primary" onclick="createSession()">创建会话</button>
+    </div>
+  </div>
 
-        // 快捷添加标签
-        document.getElementById('addTagBtn').addEventListener('click', () => {
-            const input = document.getElementById('newTag');
-            const val = input.value.trim();
-            if (val && !state.selectedTags.includes(val)) {
-                state.selectedTags.push(val);
-                if (!state.availableTags.includes(val)) state.availableTags.push(val);
-                input.value = '';
-                renderChips();
-            }
-        });
+  <!-- 历史会话 -->
+  <div>
+    <div class="group-title">历史会话</div>
+    <div id="sessionList" class="glass-card"></div>
+  </div>
 
-        document.getElementById('tagsSelect').addEventListener('change', (e) => {
-            const val = e.target.value;
-            if (val && !state.selectedTags.includes(val)) {
-                state.selectedTags.push(val);
-                renderChips();
-            }
-        });
+  <!-- 当前会话 -->
+  <div id="activeSessionBox" class="hidden section-space">
+    <div class="glass-card">
+      <div class="list-row">
+        <div class="icon-wrap g-indigo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+        </div>
+        <div class="row-body">
+          <div class="row-title" id="activeSessionTitle">—</div>
+          <div class="row-sub" id="activeSessionSub">—</div>
+        </div>
+        <button class="btn-ghost" style="padding:7px 11px;font-size:11.5px;" onclick="closeSession()">关闭</button>
+      </div>
+      <div id="turnsList" style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:18px;"></div>
+      <div style="padding:14px 16px 16px;border-top:1px solid rgba(15,23,42,0.06);">
+        <textarea id="msgInput" rows="3" class="field" placeholder="提一个基于已记录事实的问题..."></textarea>
+        <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <span id="msgHint" style="font-size:11px;color:#94a3b8;font-weight:500;"></span>
+          <button id="sendBtn" class="btn-primary" style="width:auto;padding:10px 18px;" onclick="sendMessage()">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        // 表单提交
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            messageBox.className = 'hidden';
+  <!-- 已保存分析 -->
+  <div>
+    <div class="group-title">已保存的历史分析结论</div>
+    <div id="savedAnalyses" class="glass-card"></div>
+  </div>
+</section>
 
-            const payload = {
-                // datetime-local 输出 YYYY-MM-DDTHH:mm，无时区偏移；
-                // 后端 time.Parse(RFC3339) 强制要求偏移量，故手动补 +08:00
-                timestamp: timestampInput.value + ':00+08:00',
-                people: state.selectedPeople.join(', '),
-                tags: state.selectedTags.join(', '),
-                severity_self: parseInt(severityInput.value),
-                content: document.getElementById('content').value.trim()
-            };
+<!-- ===== TAB 4: 模式 ===== -->
+<section id="tab-patterns" class="tab-panel section-space">
 
-            try {
-                const res = await fetch('/api/events', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                const result = await res.json();
-                if (res.ok) {
-                    messageBox.innerText = `写入成功！事件 ID: ${result.id}`;
-                    messageBox.className = 'p-3 rounded-lg text-sm text-center bg-green-50 text-green-800 font-medium';
-                    
-                    // 重置表单
-                    document.getElementById('content').value = '';
-                    state.selectedPeople = [];
-                    state.selectedTags = [];
-                    setLocalTime();
-                    renderChips();
-                } else {
-                    throw new Error(result.error || 'Unknown error');
-                }
-            } catch (err) {
-                messageBox.innerText = `提交失败: ${err.message}`;
-                messageBox.className = 'p-3 rounded-lg text-sm text-center bg-red-50 text-red-800 font-medium';
-            }
-        });
+  <div class="glass-card">
+    <div class="list-row">
+      <div class="icon-wrap g-emerald">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">新增一条模式观察</div>
+        <div class="row-sub">记录「情境 → 反应 → 回应 → 效果」。不下人格定性。</div>
+      </div>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;">
+      <input id="patPerson" placeholder="人物" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <input id="patTrigger" placeholder="触发情境，如：长辈生活习惯被质疑" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <textarea id="patObserved" rows="2" placeholder="观察到的反应（只写行为，不下定性）" class="field" style="padding:9px 11px;font-size:12.5px;min-height:68px;"></textarea>
+      <input id="patRef" placeholder="关联 event_id，逗号分隔（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <textarea id="patResponse" rows="2" placeholder="我尝试过的回应方式" class="field" style="padding:9px 11px;font-size:12.5px;min-height:68px;"></textarea>
+      <input id="patOutcome" placeholder="效果如何" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <button class="btn-primary" style="margin-top:4px;" onclick="addPattern()">保存记录</button>
+    </div>
+  </div>
 
-        // 启动
-        setLocalTime();
-        fetchMetadata();
-    </script>
+  <div class="glass-card" style="padding:13px;">
+    <input id="patFilterPerson" placeholder="按人物筛选查看" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadPatterns()">
+  </div>
+
+  <div id="patternsList" class="section-space"></div>
+</section>
+
+<!-- ===== TAB 5: 校准 ===== -->
+<section id="tab-calibration" class="tab-panel section-space">
+
+  <div class="glass-card">
+    <div class="list-row">
+      <div class="icon-wrap g-amber">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title">校准仪表盘</div>
+        <div class="row-sub">把"分析时刻"和"分析之后新增事实"并排摆出来，让你自己判断哪些结论需要复检。</div>
+      </div>
+      <button class="btn-ghost" style="padding:7px 11px;font-size:11.5px;" onclick="loadCalibration()">
+        <span style="display:inline-flex;align-items:center;gap:4px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:12px;height:12px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+          刷新
+        </span>
+      </button>
+    </div>
+    <div style="padding:4px 16px 16px;">
+      <div id="calStats" class="stat-grid"></div>
+    </div>
+  </div>
+
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;">
+      <span class="group-title" style="margin:0;">分析演进时间线</span>
+      <span id="calTimelineHint" style="font-size:11px;color:#94a3b8;font-weight:500;"></span>
+    </div>
+    <div id="calTimeline" class="section-space"></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// =====================================================
+// 全局状态
+// =====================================================
+const state = {
+  selectedPeople: [], selectedTags: [],
+  availablePeople: [], availableTags: [],
+  activeProfiles: [],
+  sessionProfiles: new Set(),
+  chosenMode: 'pattern_query',
+  activeSession: null,
+  lastSearchTimer: null,
+  expandedCal: new Set(),
+  quickOpen: false,
+};
+
+const sevLabels = {
+  1: '1 · 背景噪音', 2: '2 · 轻度摩擦',
+  3: '3 · 中度冲突', 4: '4 · 重度投毒', 5: '5 · 系统重构阈值'
+};
+const modeInfo = {
+  pattern_query:       { title: '模式查询',     desc: '只做统计和罗列，不下任何评价性结论。适合"最近有没有某种重复行为"类问题。' },
+  contradiction_check: { title: '矛盾检测',     desc: '针对一个假设，主动列支持+矛盾的事实，不替你下结论。适合验证直觉。' },
+  hypothesis_only:     { title: '假设构建',     desc: '允许综合推断，但强制假设句式+置信度标注+双重解释+event引用。仅在确实需要理脉络时使用。' },
+  review:              { title: '复检校准',     desc: '拿此前保存的某条分析对照新事实，检验是否被印证 —— 校准你对 AI 分析的信任程度。' },
+};
+const modeIcons = {
+  pattern_query:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>',
+  contradiction_check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>',
+  hypothesis_only:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>',
+  review:              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
+};
+
+// =====================================================
+// 工具函数
+// =====================================================
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function fmtTime(ts){try{return new Date(ts).toLocaleString('zh-CN',{hour12:false});}catch(e){return ts||'';}}
+function fmtDay(ts){try{return new Date(ts).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});}catch(e){return ts||'';}}
+function pad(n){return String(n).padStart(2,'0');}
+
+// =====================================================
+// Tab 切换 + 滑动指示器
+// =====================================================
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabIndicator = document.getElementById('tabIndicator');
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabBtns.forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    const idx = parseInt(btn.dataset.idx,10);
+    const bar = document.getElementById('tabBar');
+    const w = bar.clientWidth;
+    const single = (w - 8) / 5;
+    tabIndicator.style.transform = `translateX(${2 + idx*(single+1.5)}px)`;
+    const t = btn.dataset.tab;
+    if (t==='timeline') loadTimeline();
+    if (t==='analysis') { checkLLMStatus(); loadSessionList(); loadSavedAnalyses(); }
+    if (t==='patterns') loadPatterns();
+    if (t==='calibration') loadCalibration();
+  });
+});
+window.addEventListener('resize', () => {
+  const act = document.querySelector('.tab-btn.active');
+  if (!act) return;
+  const idx = parseInt(act.dataset.idx,10);
+  const bar = document.getElementById('tabBar');
+  const w = bar.clientWidth;
+  const single = (w - 8) / 5;
+  tabIndicator.style.transform = `translateX(${2 + idx*(single+1.5)}px)`;
+});
+
+// =====================================================
+// 初始化
+// =====================================================
+function setLocalTime(){
+  const now = new Date();
+  document.getElementById('timestamp').value =
+    `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+async function fetchMetadata(){
+  try {
+    const res = await fetch('/api/metadata'); const d = await res.json();
+    state.availablePeople = d.people||[]; state.availableTags = d.tags||[];
+    renderDropdowns(); renderChips();
+  } catch(e){console.error(e);}
+}
+function renderDropdowns(){
+  const pS = document.getElementById('peopleSelect');
+  const tS = document.getElementById('tagsSelect');
+  pS.innerHTML = '<option value="">选择已有…</option>' +
+    state.availablePeople.filter(p=>!state.selectedPeople.includes(p))
+      .map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  tS.innerHTML = '<option value="">选择已有…</option>' +
+    state.availableTags.filter(t=>!state.selectedTags.includes(t))
+      .map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+}
+function renderChips(){
+  const pC = document.getElementById('peopleChips');
+  const tC = document.getElementById('tagsChips');
+  pC.innerHTML = state.selectedPeople.length===0
+    ? '<span style="font-size:11.5px;color:#94a3b8;">尚未添加，用下方选择/输入</span>'
+    : state.selectedPeople.map(p=>
+      `<span class="pill p-indigo">${escapeHtml(p)}<span class="pill-close" onclick="removePerson('${escapeHtml(p)}')">×</span></span>`
+    ).join('');
+  tC.innerHTML = state.selectedTags.length===0
+    ? '<span style="font-size:11.5px;color:#94a3b8;">尚未添加</span>'
+    : state.selectedTags.map(t=>
+      `<span class="pill p-emerald">${escapeHtml(t)}<span class="pill-close" onclick="removeTag('${escapeHtml(t)}')">×</span></span>`
+    ).join('');
+  renderDropdowns();
+}
+window.removePerson = n => { state.selectedPeople = state.selectedPeople.filter(x=>x!==n); renderChips(); };
+window.removeTag    = n => { state.selectedTags    = state.selectedTags.filter(x=>x!==n);    renderChips(); };
+window.addPerson = () => {
+  const v = document.getElementById('newPerson').value.trim();
+  if (v && !state.selectedPeople.includes(v)){
+    state.selectedPeople.push(v);
+    if (!state.availablePeople.includes(v)) state.availablePeople.push(v);
+    document.getElementById('newPerson').value=''; renderChips();
+  }
+};
+document.getElementById('peopleSelect').addEventListener('change',e=>{
+  if(e.target.value && !state.selectedPeople.includes(e.target.value)){
+    state.selectedPeople.push(e.target.value); renderChips();
+  } e.target.value='';
+});
+window.addTag = () => {
+  const v = document.getElementById('newTag').value.trim();
+  if (v && !state.selectedTags.includes(v)){
+    state.selectedTags.push(v);
+    if (!state.availableTags.includes(v)) state.availableTags.push(v);
+    document.getElementById('newTag').value=''; renderChips();
+  }
+};
+document.getElementById('tagsSelect').addEventListener('change',e=>{
+  if(e.target.value && !state.selectedTags.includes(e.target.value)){
+    state.selectedTags.push(e.target.value); renderChips();
+  } e.target.value='';
+});
+function updateSev(v){
+  const s = parseInt(v)||1;
+  const el = document.getElementById('severityBadge');
+  el.textContent = sevLabels[s];
+  el.className = 'pill sev-badge-'+s;
+}
+
+// 快记展开收起
+window.toggleQuickNote = function(){
+  state.quickOpen = !state.quickOpen;
+  const box = document.getElementById('quickBox');
+  const chev = document.getElementById('quickChev');
+  if (state.quickOpen) {
+    box.classList.add('open');
+    chev.querySelector('svg').style.transform = 'rotate(90deg)';
+    setTimeout(()=>document.getElementById('quickContent').focus(), 260);
+  } else {
+    box.classList.remove('open');
+    chev.querySelector('svg').style.transform = 'rotate(0)';
+  }
+};
+document.getElementById('quickChev').querySelector('svg').style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+
+// =====================================================
+// 记录提交
+// =====================================================
+async function submitQuick(){
+  const c = document.getElementById('quickContent').value.trim();
+  const msg = document.getElementById('quickMsg');
+  msg.className = 'msg-box';
+  if (c.length<3){ msg.classList.add('err'); msg.innerText='内容至少 3 个字'; return; }
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:00+08:00`;
+  const res = await fetch('/api/events',{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({timestamp:ts, content:c, severity_self:0, status:'raw'})});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ msg.classList.add('err'); msg.innerText=r.error||'失败'; return; }
+  msg.classList.add('ok');
+  msg.innerText=`已保存为事件 #${r.id}，稍后请在回顾页补全人物/标签/严重度`;
+  document.getElementById('quickContent').value='';
+  fetchMetadata();
+}
+async function submitFull(e){
+  e.preventDefault();
+  const msg = document.getElementById('fullMsg');
+  msg.className = 'msg-box';
+  const ts = document.getElementById('timestamp').value + ':00+08:00';
+  const payload = {
+    timestamp: ts,
+    people: state.selectedPeople.join(', '),
+    tags: state.selectedTags.join(', '),
+    severity_self: parseInt(document.getElementById('severity_self').value)||1,
+    content: document.getElementById('content').value.trim(),
+  };
+  const res = await fetch('/api/events',{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ msg.classList.add('err'); msg.innerText=r.error||'失败'; return; }
+  msg.classList.add('ok');
+  msg.innerText=`写入成功！事件 ID: ${r.id}`;
+  document.getElementById('content').value='';
+  state.selectedPeople = []; state.selectedTags = [];
+  setLocalTime(); renderChips(); updateSev(1);
+  document.getElementById('severity_self').value = 1;
+  fetchMetadata();
+}
+
+// =====================================================
+// 回顾 / 修正
+// =====================================================
+function emptyHTML(esTitle, esSub){
+  return `<div class="empty-state">
+    <div class="es-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
+    </div>
+    <div class="es-title">${esTitle}</div>
+    <div class="es-sub">${esSub}</div>
+  </div>`;
+}
+async function loadTimeline(){
+  const people = document.getElementById('tlFilterPeople').value.trim();
+  const tags = document.getElementById('tlFilterTags').value.trim();
+  const q = document.getElementById('tlSearch').value.trim();
+  let events;
+  if (q){
+    const res = await fetch('/api/events/search?q='+encodeURIComponent(q));
+    events = await res.json();
+  } else {
+    const params = new URLSearchParams();
+    if (people) params.set('people', people);
+    if (tags) params.set('tags', tags);
+    const res = await fetch('/api/events?'+params.toString());
+    events = await res.json();
+  }
+  const list = document.getElementById('timelineList');
+  document.getElementById('tlHint').textContent = `共 ${events.length||0} 条 · 按发生时间倒序`;
+  if (!events || events.length===0){
+    list.innerHTML = '<div class="glass-card">' + emptyHTML('暂无匹配的事实记录', '先在「记录」页签写一条，或修改筛选条件') + '</div>';
+    return;
+  }
+  events.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  list.innerHTML = '';
+  events.forEach(e=>{
+    const peopleArr = (e.people||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const tagsArr   = (e.tags||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const sev = (e.severity_self||0);
+    const isIncomplete = peopleArr.length===0 || tagsArr.length===0 || sev===0;
+    const sevClass = sev>0 ? 'sev-badge-'+sev : '';
+    const sevLabel = sev>0 ? sevLabels[sev] : '⚠ 未填严重度';
+    const card = document.createElement('div');
+    card.className = 'ev-card' + (isIncomplete ? ' incomplete' : '');
+    card.innerHTML = `
+      <div class="ev-meta">
+        <span class="ev-idtime">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          #${e.id} · ${fmtTime(e.timestamp)}
+        </span>
+        <span class="pill ${sev>0?sevClass:'p-amber'}">${sevLabel}</span>
+        ${isIncomplete ? '<span class="pill p-amber">未补全</span>' : ''}
+      </div>
+      <p class="ev-content">${escapeHtml(e.content)}</p>
+      <div class="ev-tags">
+        ${peopleArr.length ? peopleArr.map(p=>`<span class="pill p-indigo" style="padding:3.5px 9px;font-size:11px;">${escapeHtml(p)}</span>`).join('') : '<span class="pill p-amber" style="padding:3.5px 9px;font-size:11px;">人物未填</span>'}
+        ${tagsArr.length ? tagsArr.map(t=>`<span class="pill p-emerald" style="padding:3.5px 9px;font-size:11px;">${escapeHtml(t)}</span>`).join('') : '<span class="pill p-amber" style="padding:3.5px 9px;font-size:11px;">标签未填</span>'}
+      </div>
+      <div class="ev-actions">
+        <button class="act-edit" onclick="toggleCorrect(${e.id})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125"/></svg>
+          修正（留痕）
+        </button>
+        <button class="act-hist" onclick="toggleHist(${e.id})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          修正历史
+        </button>
+      </div>
+      <div id="cf-${e.id}" class="correct-box hidden"></div>
+      <div id="hi-${e.id}" class="hist-box hidden"></div>`;
+    list.appendChild(card);
+  });
+}
+window.toggleCorrect = function(id){
+  const box = document.getElementById('cf-'+id);
+  if (!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <select id="cff-${id}" class="field" style="padding:9px 11px;font-size:12.5px;">
+        <option value="content">content · 事件详情</option>
+        <option value="people">people · 人物</option>
+        <option value="tags">tags · 标签</option>
+        <option value="timestamp">timestamp · 发生时间</option>
+        <option value="severity_self">severity_self · 严重度</option>
+      </select>
+      <input id="cfn-${id}" placeholder="修正后的值（timestamp 格式: 2026-01-02T03:04:05+08:00）" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <input id="cfr-${id}" placeholder="修正原因（必填，会留痕）" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <button class="btn-primary" style="padding:10px 16px;font-size:13px;" onclick="doCorrect(${id})">提交修正</button>
+    </div>`;
+};
+window.doCorrect = async function(id){
+  const field = document.getElementById('cff-'+id).value;
+  const nv = document.getElementById('cfn-'+id).value;
+  const reason = document.getElementById('cfr-'+id).value.trim();
+  if (!reason){ alert('必须填写修正原因'); return; }
+  const res = await fetch(`/api/events/${id}/correct`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({field, new_value:nv, reason})});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ alert('失败: '+(r.error||'')); return; }
+  loadTimeline();
+};
+window.toggleHist = async function(id){
+  const box = document.getElementById('hi-'+id);
+  if (!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+  const res = await fetch(`/api/events/${id}/corrections`);
+  const list = await res.json();
+  box.classList.remove('hidden');
+  if (!list || list.length===0){ box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:4px 0;">（无修正记录）</div>'; return; }
+  box.innerHTML = list.map((c,i)=>
+    `<div class="hc" style="${i===list.length-1?'border:none;padding-bottom:0;':''}">
+      <b style="color:#475569;">${fmtTime(c.corrected_at)}</b> · <b style="color:#4f46e5;">${escapeHtml(c.field)}</b><br>
+      <span style="color:#991b1b;">旧：</span>${escapeHtml(c.old_value)} → <span style="color:#065f46;">新：</span>${escapeHtml(c.new_value)}<br>
+      <span style="color:#94a3b8;">原因: ${escapeHtml(c.reason)}</span>
+    </div>`
+  ).join('');
+};
+function onSearchInput(){
+  clearTimeout(state.lastSearchTimer);
+  state.lastSearchTimer = setTimeout(loadTimeline, 250);
+}
+
+// =====================================================
+// AI 分析：模型配置 + 会话
+// =====================================================
+async function checkLLMStatus(){
+  try {
+    const res = await fetch('/api/llm_status');
+    const d = await res.json();
+    state.activeProfiles = d.profiles||[];
+    const total = state.activeProfiles.length;
+    const configured = !!d.configured;
+    document.getElementById('llmStatusLine').textContent = configured
+      ? `✅ 已配置 ${total} 个模型，选择多个可并行对比`
+      : (d.fallback_env ? '📦 使用部署时注入的环境变量配置（可在下方新增以覆盖）' : '⚠️ 未配置模型，请在下方新增或在部署时设置 LLM_API_BASE / LLM_API_KEY / LLM_MODEL');
+    renderProfiles(); renderModeSelector(); renderProfilePicker();
+  } catch(e){
+    document.getElementById('llmStatusLine').textContent='❌ 后端状态查询失败';
+  }
+}
+async function renderProfiles(){
+  const list = await fetch('/api/llm_profiles').then(r=>r.json()).catch(()=>[]);
+  const box = document.getElementById('profilesList');
+  if (!list || list.length===0){ box.innerHTML='<div style="padding:16px;text-align:center;font-size:12px;color:#94a3b8;background:rgba(15,23,42,0.03);border-radius:11px;">暂无配置</div>'; return; }
+  box.innerHTML = list.map(p=>`
+    <div class="prof-row">
+      <label class="switch">
+        <input type="checkbox" ${p.is_active?'checked':''} onchange="toggleAct(${p.id}, this.checked)">
+        <span class="sw-track"></span>
+        <span class="sw-thumb"></span>
+      </label>
+      <div class="prof-avatar" style="background:linear-gradient(135deg,#${(p.id*87%220+35).toString(16).padStart(2,'0')}${(p.id*143%200+40).toString(16).padStart(2,'0')},#${(p.id*53%210+20).toString(16).padStart(2,'0')}${(p.id*97%180+60).toString(16).padStart(2,'0')});">${escapeHtml((p.name||'?').slice(0,1).toUpperCase())}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:700;color:#0f172a;">${escapeHtml(p.name)} <span style="font-weight:500;color:#94a3b8;font-size:11px;">· ${escapeHtml(p.model)}</span></div>
+        <div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.api_base)}</div>
+      </div>
+      <button class="btn-danger" style="padding:6px 10px;font-size:11.5px;" onclick="delProfile(${p.id})">删除</button>
+    </div>`).join('');
+}
+window.createProfile = async function(){
+  const name = document.getElementById('pName').value.trim();
+  const base = document.getElementById('pBase').value.trim();
+  const key = document.getElementById('pKey').value.trim();
+  const model = document.getElementById('pModel').value.trim();
+  if (!name||!base||!key||!model){ alert('请填全 4 项'); return; }
+  const res = await fetch('/api/llm_profiles',{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, api_base:base, api_key:key, model, is_active:1})});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ alert('失败: '+(r.error||'')); return; }
+  document.getElementById('pName').value=''; document.getElementById('pBase').value='';
+  document.getElementById('pKey').value='';  document.getElementById('pModel').value='';
+  checkLLMStatus();
+};
+window.toggleAct = async function(id, on){
+  await fetch('/api/llm_profiles/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({is_active:on?1:0})});
+  checkLLMStatus();
+};
+window.delProfile = async function(id){
+  if (!confirm('确认删除此模型配置？')) return;
+  await fetch('/api/llm_profiles/'+id,{method:'DELETE'});
+  checkLLMStatus();
+};
+function renderModeSelector(){
+  const box = document.getElementById('modeSelector');
+  box.innerHTML = Object.entries(modeInfo).map(([k,v])=>`
+    <div class="mode-card ${k===state.chosenMode?'selected':''}" onclick="pickMode('${k}')">
+      <div class="mode-icon">${modeIcons[k]||''}</div>
+      <div class="mode-name">${v.title}</div>
+    </div>`).join('');
+  document.getElementById('modeDesc').textContent = modeInfo[state.chosenMode].desc;
+}
+window.pickMode = function(k){
+  state.chosenMode = k;
+  renderModeSelector();
+};
+function renderProfilePicker(){
+  const box = document.getElementById('profilePicker');
+  const list = state.activeProfiles;
+  if (!list || list.length===0){
+    box.innerHTML = '<div style="padding:11px 12px;font-size:11.5px;color:#64748b;line-height:1.6;background:rgba(15,23,42,0.03);border-radius:10px;">未配置任何活跃模型。请先在顶部「模型配置」里新增并打开开关。若用环境变量注入也可正常使用（默认单模型）。</div>';
+    return;
+  }
+  box.innerHTML = list.map(p=>{
+    const initial = (p.name||'?').slice(0,1).toUpperCase();
+    const hue = (p.id*87) % 360;
+    return `
+    <div class="prof-item ${state.sessionProfiles.has(p.id)?'checked':''}" onclick="toggleSessProfClick(${p.id}, this)">
+      <div class="prof-check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+      </div>
+      <div class="prof-avatar" style="background:linear-gradient(135deg,hsl(${hue},75%,58%),hsl(${(hue+40)%360},70%,50%));">${escapeHtml(initial)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:700;color:#0f172a;">${escapeHtml(p.name)}</div>
+        <div style="font-size:10.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.model)}</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+window.toggleSessProf = function(id, on){ /* kept for compat but no longer primary */ };
+window.toggleSessProfClick = function(id, el){
+  if (state.sessionProfiles.has(id)) {
+    state.sessionProfiles.delete(id); el.classList.remove('checked');
+  } else {
+    state.sessionProfiles.add(id); el.classList.add('checked');
+  }
+};
+window.createSession = async function(){
+  const body = {
+    mode: state.chosenMode,
+    people: document.getElementById('sessPeople').value.trim(),
+    tags: document.getElementById('sessTags').value.trim(),
+    profile_ids: Array.from(state.sessionProfiles),
+  };
+  const res = await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ alert('失败: '+(r.error||'')); return; }
+  state.activeSession = {id:r.id, mode:body.mode, filter_people:body.people, filter_tags:body.tags, turns:[]};
+  renderActiveSession();
+  loadSessionList();
+};
+async function loadSessionList(){
+  const list = await fetch('/api/sessions').then(r=>r.json()).catch(()=>[]);
+  const box = document.getElementById('sessionList');
+  if (!list || list.length===0){ box.innerHTML = emptyHTML('暂无会话', '新建一个分析会话，开始让 AI 帮你基于事实分析'); return; }
+  box.innerHTML = '';
+  list.forEach((s,i)=>{
+    const row = document.createElement('div');
+    row.className = 'list-row list-row-click' + (i!==list.length-1 ? '' : '');
+    if (i!==list.length-1) row.style.borderBottom = 'none';
+    row.innerHTML = `
+      <div class="icon-wrap g-sky">
+        ${modeIcons[s.mode] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337"/></svg>'}
+      </div>
+      <div class="row-body" onclick="openSession(${s.id})" style="cursor:pointer;">
+        <div class="row-title">会话 #${s.id} · ${modeInfo[s.mode]?.title||s.mode}</div>
+        <div class="row-sub">${fmtTime(s.updated_at)}${s.filter_people?' · 人物:'+escapeHtml(s.filter_people):''}${s.filter_tags?' · 标签:'+escapeHtml(s.filter_tags):''}</div>
+      </div>
+      <span class="chev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+      </span>`;
+    box.appendChild(row);
+  });
+}
+window.openSession = async function(id){
+  const res = await fetch('/api/sessions/'+id);
+  const s = await res.json();
+  if (!s.id){ alert('会话不存在'); return; }
+  state.activeSession = s;
+  renderActiveSession();
+};
+window.closeSession = function(){ state.activeSession=null; document.getElementById('activeSessionBox').classList.add('hidden'); };
+function renderActiveSession(){
+  const s = state.activeSession;
+  if (!s) return;
+  document.getElementById('activeSessionBox').classList.remove('hidden');
+  document.getElementById('activeSessionTitle').textContent = `会话 #${s.id} · ${modeInfo[s.mode]?.title||s.mode}`;
+  document.getElementById('activeSessionSub').textContent =
+    `${modeInfo[s.mode]?.desc||''}${s.filter_people?' · 人物限定：'+s.filter_people:''}${s.filter_tags?' · 标签限定：'+s.filter_tags:''}`;
+  const turns = s.turns||[];
+  const box = document.getElementById('turnsList');
+  box.innerHTML = '';
+  turns.forEach(t=>{
+    const reps = t.replies||[];
+    const cols = reps.length >= 3 ? 3 : (reps.length === 2 ? 2 : 1);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div style="font-size:11px;color:#94a3b8;display:flex;justify-content:space-between;font-weight:500;">
+        <span style="display:inline-flex;align-items:center;gap:5px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:11px;height:11px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
+          你 · ${fmtTime(t.created_at)}
+        </span>
+        ${t.had_image?'<span style="display:inline-flex;align-items:center;gap:3px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:11px;height:11px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>含图</span>':''}
+      </div>
+      <div class="user-bubble" style="margin-top:6px;">${escapeHtml(t.user_content)}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:14px;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:5px;">
+        <span style="width:2px;height:9px;border-radius:1px;background:linear-gradient(180deg,#6366f1,#8b5cf6);"></span>
+        AI 回复${reps.length>1?'（'+reps.length+' 模型并行对比）':''}
+      </div>
+      <div class="reply-grid cols-${cols}" style="margin-top:7px;">
+        ${reps.map(r=>{
+          const hue = ((r.profile_id||1)*87) % 360;
+          const initial = (r.profile_name||'?').slice(0,1).toUpperCase();
+          return `
+          <div class="reply-card ${r.error?'err':''}">
+            <div class="reply-head">
+              <div class="ra" style="background:linear-gradient(135deg,hsl(${hue},75%,58%),hsl(${(hue+40)%360},70%,50%));">${escapeHtml(initial)}</div>
+              <div style="flex:1;min-width:0;">
+                <div class="rname">${escapeHtml(r.profile_name||'Profile')}</div>
+                <div class="rmodel">${escapeHtml(r.model||'')}</div>
+              </div>
+              ${r.used_event_ids && r.used_event_ids.length ? `<span class="reply-ref">引用 ${r.used_event_ids.length}</span>`:''}
+            </div>
+            ${r.error ? `<div class="reply-err">❌ ${escapeHtml(r.error)}</div>`
+                   : `<div class="reply-body">${escapeHtml(r.reply)}</div>`}
+            ${r.reply ? `<div class="reply-save"><button onclick='saveReply(${JSON.stringify(r).replace(/'/g,"&#39;")})'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>保存为分析结论</button></div>`:''}
+          </div>`;
+        }).join('')}
+      </div>`;
+    box.appendChild(wrap);
+  });
+}
+window.saveReply = async function(reply){
+  const s = state.activeSession;
+  const ids = reply.used_event_ids ? reply.used_event_ids.join(',') : '';
+  await fetch('/api/analyses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    based_on_event_ids: ids,
+    agent_used: `session#${s.id} profile#${reply.profile_id}(${reply.profile_name})`,
+    output: reply.reply,
+    mode: s.mode, prompt_version: reply.prompt_version, session_id: s.id,
+  })});
+  alert('已保存为分析结论，可在校准仪表盘查看与复检');
+};
+window.sendMessage = async function(){
+  const s = state.activeSession; if (!s) return;
+  const txt = document.getElementById('msgInput').value.trim();
+  if (!txt) return;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true; btn.textContent = '模型并行调用中…';
+  document.getElementById('msgHint').textContent = '依模型响应速度，约 30~120 秒';
+  try {
+    const res = await fetch(`/api/sessions/${s.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({user_content:txt})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    document.getElementById('msgInput').value = '';
+    openSession(s.id);
+  } catch(e){
+    alert('发送失败: '+e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '发送';
+    document.getElementById('msgHint').textContent = '';
+  }
+};
+async function loadSavedAnalyses(){
+  const list = await fetch('/api/analyses').then(r=>r.json()).catch(()=>[]);
+  const box = document.getElementById('savedAnalyses');
+  if (!list || list.length===0){ box.innerHTML = emptyHTML('暂无保存的分析','完成一次 AI 分析并点「保存为分析结论」后这里会出现'); return; }
+  box.innerHTML = '';
+  list.slice(0,50).forEach((a,i)=>{
+    const out = (a.output||'').slice(0,200);
+    const row = document.createElement('div');
+    row.className = 'list-row' + (i<list.slice(0,50).length-1 ? '' : '');
+    row.innerHTML = `
+      <div class="icon-wrap g-indigo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+      </div>
+      <div class="row-body">
+        <div class="row-title" style="font-size:13px;">
+          #${a.id} · ${fmtTime(a.created_at)}
+          ${a.mode?`<span class="pill p-indigo" style="padding:2.5px 8px;font-size:10.5px;margin-left:4px;">${escapeHtml(a.mode)}</span>`:''}
+        </div>
+        <div class="row-sub" style="font-size:12.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(out)}</div>
+        ${a.agent_used?`<div class="row-sub" style="font-size:10.5px;margin-top:4px;">来源: ${escapeHtml(a.agent_used)}</div>`:''}
+      </div>`;
+    box.appendChild(row);
+  });
+}
+
+// =====================================================
+// 情境-反应对照库
+// =====================================================
+window.addPattern = async function(){
+  const body = {
+    person: document.getElementById('patPerson').value.trim(),
+    trigger_context: document.getElementById('patTrigger').value.trim(),
+    observed_pattern: document.getElementById('patObserved').value.trim(),
+    ref_event_ids: document.getElementById('patRef').value.trim(),
+    response_tried: document.getElementById('patResponse').value.trim(),
+    outcome: document.getElementById('patOutcome').value.trim(),
+  };
+  if (!body.person||!body.trigger_context||!body.observed_pattern){ alert('人物/情境/反应为必填'); return; }
+  const res = await fetch('/api/interaction_patterns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r = await res.json().catch(()=>({}));
+  if (!res.ok){ alert('失败: '+(r.error||'')); return; }
+  ['patPerson','patTrigger','patObserved','patRef','patResponse','patOutcome'].forEach(i=>document.getElementById(i).value='');
+  loadPatterns();
+};
+async function loadPatterns(){
+  const person = document.getElementById('patFilterPerson').value.trim();
+  const p = new URLSearchParams(); if (person) p.set('person',person);
+  const list = await fetch('/api/interaction_patterns?'+p.toString()).then(r=>r.json()).catch(()=>[]);
+  const box = document.getElementById('patternsList');
+  if (!list || list.length===0){
+    box.innerHTML = '<div class="glass-card">' + emptyHTML('暂无模式记录','把「情境 → 反应 → 回应 → 效果」写下来，积累行为规律') + '</div>';
+    return;
+  }
+  box.innerHTML = list.map(pp=>`
+    <div class="ev-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:10px;flex-wrap:wrap;">
+        <div style="font-weight:700;font-size:14px;color:#0f172a;display:flex;align-items:center;gap:8px;">
+          <div class="icon-wrap g-teal" style="width:28px;height:28px;border-radius:8px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+          </div>
+          <span>${escapeHtml(pp.person)}</span>
+          <span style="font-size:11.5px;color:#94a3b8;font-weight:500;">· ${escapeHtml(pp.trigger_context)}</span>
+        </div>
+        <span class="pill ${pp.low_sample?'p-amber':'p-emerald'}" style="padding:3.5px 9px;font-size:11px;">观察 ${pp.observation_count} 次${pp.low_sample?' · 样本不足':''}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <p style="font-size:13px;color:#0f172a;line-height:1.7;"><span style="color:#94a3b8;font-weight:600;font-size:11.5px;">反应：</span>${escapeHtml(pp.observed_pattern)}</p>
+        ${pp.response_tried?`<p style="font-size:13px;color:#334155;line-height:1.7;"><span style="color:#94a3b8;font-weight:600;font-size:11.5px;">尝试回应：</span>${escapeHtml(pp.response_tried)}</p>`:''}
+        ${pp.outcome?`<p style="font-size:13px;color:#334155;line-height:1.7;"><span style="color:#94a3b8;font-weight:600;font-size:11.5px;">效果：</span>${escapeHtml(pp.outcome)}</p>`:''}
+        ${pp.ref_event_ids?`<p style="font-size:10.5px;color:#94a3b8;margin-top:3px;">关联事实 ID: ${escapeHtml(pp.ref_event_ids)}</p>`:''}
+      </div>
+    </div>`).join('');
+}
+
+// =====================================================
+// 校准仪表盘
+// =====================================================
+const statIcons = {
+  total:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.422 48.422 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/></svg>',
+  newf:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>',
+  early:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>',
+  latest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+};
+const sparkSVG = '<svg viewBox="0 0 40 22" fill="none" stroke="currentColor" preserveAspectRatio="none"><path d="M0 18 L6 14 L12 16 L18 9 L24 11 L30 5 L36 8 L40 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+async function loadCalibration(){
+  const [stats, tl] = await Promise.all([
+    fetch('/api/analyses/stats').then(r=>r.json()).catch(()=>null),
+    fetch('/api/analyses/timeline').then(r=>r.json()).catch(()=>null),
+  ]);
+  const statsBox = document.getElementById('calStats');
+  statsBox.innerHTML = '';
+  if (!stats){ statsBox.innerHTML='<div style="grid-column:1/-1;padding:12px;text-align:center;font-size:12px;color:#b91c1c;background:rgba(239,68,68,0.05);border-radius:11px;">统计加载失败</div>'; }
+  else {
+    const totalNew = (tl||[]).reduce((s,a)=>s+(a.events_since||0),0);
+    const earliest = stats.earliest?fmtDay(stats.earliest):'—';
+    const latest   = stats.latest?fmtTime(stats.latest):'—';
+    const cards = [
+      {label:'分析总数',       value: stats.total||0, icon:'total',  cls:'g-indigo',  warn:false},
+      {label:'分析后累计新增事实', value: totalNew,         icon:'newf',   cls:'g-amber',   warn: totalNew>0},
+      {label:'最早一次分析',     value: earliest,           icon:'early',  cls:'g-sky',     warn:false},
+      {label:'最近一次分析',     value: latest,             icon:'latest', cls:'g-emerald', warn:false},
+    ];
+    cards.forEach(c=>{
+      statsBox.insertAdjacentHTML('beforeend',`
+        <div class="stat-card ${c.warn?'warn':''}">
+          <div class="stat-icon ${c.cls}">${statIcons[c.icon]||''}</div>
+          <div class="stat-spark">${sparkSVG}</div>
+          <div class="stat-label">${escapeHtml(c.label)}</div>
+          <div class="stat-value ${c.warn?'':''}">${escapeHtml(String(c.value))}</div>
+        </div>`);
+    });
+    const md = (stats.modes||[]).map(m=>`<span class="pill p-indigo" style="padding:3.5px 9px;font-size:11px;">${escapeHtml(m.mode)} ×${m.count}</span>`).join(' ');
+    const ag = (stats.agents||[]).map(a=>`<span class="pill p-slate" style="padding:3.5px 9px;font-size:11px;">${escapeHtml(a.agent)} ×${a.count}</span>`).join(' ');
+    if (md) statsBox.insertAdjacentHTML('beforeend',`
+      <div class="stat-card" style="grid-column:1/-1;"><div class="stat-label" style="margin-bottom:6px;">按模式分布</div><div>${md}</div></div>`);
+    if (ag) statsBox.insertAdjacentHTML('beforeend',`
+      <div class="stat-card" style="grid-column:1/-1;"><div class="stat-label" style="margin-bottom:6px;">按调用来源分布（agent）</div><div style="line-height:1.8;">${ag}</div></div>`);
+  }
+  const tlBox = document.getElementById('calTimeline');
+  document.getElementById('calTimelineHint').textContent = tl && tl.length ? `共 ${tl.length} 条 · 倒序` : '';
+  if (!tl || tl.length===0){
+    tlBox.innerHTML = '<div class="glass-card">' + emptyHTML('暂无分析记录','完成一次 AI 分析后这里会出现演进时间线，供你复检校准') + '</div>';
+    return;
+  }
+  tlBox.innerHTML = '';
+  tl.forEach(a=>{
+    const since = a.events_since||0;
+    const hi = since>=3, med = since>=1 && !hi;
+    const badge = hi
+      ? `<span class="pill p-rose" style="padding:4px 10px;font-size:11px;">⚠ 新增 ${since} 条事实，建议复检</span>`
+      : med ? `<span class="pill p-amber" style="padding:4px 10px;font-size:11px;">新增 ${since} 条事实</span>`
+            : `<span class="pill p-emerald" style="padding:4px 10px;font-size:11px;">无新增事实</span>`;
+    const expanded = state.expandedCal.has(a.id);
+    const full = a.output||'';
+    const shown = (expanded || full.length<=400) ? full : full.slice(0,400)+'…';
+    const modeTag = a.mode?`<span class="pill p-indigo" style="padding:2.5px 8px;font-size:10.5px;">${escapeHtml(a.mode)}</span>`:'';
+    const pvTag   = a.prompt_version?`<span class="pill p-slate" style="padding:2.5px 8px;font-size:10.5px;">prompt v${escapeHtml(a.prompt_version)}</span>`:'';
+    const wrap = document.createElement('div');
+    wrap.className = 'cal-item ' + (hi?'danger':(med?'warn':''));
+    wrap.innerHTML = `
+      <div class="ev-card ${hi?'warn-calib':''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px;">
+            <span class="ev-idtime">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              #${a.id} · ${fmtTime(a.created_at)}
+            </span>
+            ${modeTag}${pvTag}
+          </div>
+          ${badge}
+        </div>
+        ${(a.based_on_event_ids||a.agent_used) ? `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;font-size:10.5px;color:#94a3b8;font-weight:500;">
+            ${a.agent_used?`<span>来源: ${escapeHtml(a.agent_used)}</span>`:''}
+            ${a.based_on_event_ids?`<span>· 基于事件: ${escapeHtml(a.based_on_event_ids)}</span>`:''}
+          </div>`:''}
+        <div style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:13px;color:#0f172a;line-height:1.75;">${escapeHtml(shown)}</div>
+        ${full.length>400?`<button style="margin-top:8px;background:none;border:none;cursor:pointer;font-size:12px;font-weight:700;color:#4f46e5;padding:0;" onclick="toggleCal(${a.id})">${expanded?'收起 ↑':'展开全文 ↓'}</button>`:''}
+        <div style="margin-top:12px;padding-top:11px;border-top:1px dashed rgba(15,23,42,0.08);">
+          <button class="act-recheck" style="background:none;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;" onclick="recheckToAnalysis(${a.id})">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            拿这条去 AI 复检
+          </button>
+        </div>
+      </div>`;
+    tlBox.appendChild(wrap);
+  });
+}
+window.toggleCal = function(id){
+  if (state.expandedCal.has(id)) state.expandedCal.delete(id); else state.expandedCal.add(id);
+  loadCalibration();
+};
+window.recheckToAnalysis = function(aid){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const btn = document.querySelector('.tab-btn[data-tab="analysis"]');
+  btn.classList.add('active');
+  document.getElementById('tab-analysis').classList.add('active');
+  const idx = parseInt(btn.dataset.idx,10);
+  const bar = document.getElementById('tabBar');
+  const w = bar.clientWidth; const single = (w - 8) / 5;
+  tabIndicator.style.transform = `translateX(${2 + idx*(single+1.5)}px)`;
+  state.chosenMode = 'review';
+  checkLLMStatus(); loadSessionList(); loadSavedAnalyses();
+  document.getElementById('modeSelector')?.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>{alert(`请新建「复检校准」模式的会话，然后输入：\n\n请复检分析 #${aid}：对照此后新增的事实，原结论是否仍成立？需要修正的部分有哪些？`);}, 320);
+};
+
+// =====================================================
+// 启动
+// =====================================================
+setLocalTime();
+fetchMetadata();
+updateSev(1);
+renderModeSelector();
+renderProfilePicker();
+</script>
 </body>
 </html>
