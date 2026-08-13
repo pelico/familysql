@@ -846,8 +846,31 @@
       <button class="btn-primary" onclick="createSession()">创建会话</button>
     </div>
   </div>
+</div>
 
-  <!-- 历史会话 -->
+<!-- 查看分析结论详情 -->
+<div class="modal-mask" id="analysisModal" onclick="if(event.target===this)closeAnalysisModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-head-title" id="analysisModalTitle">分析结论</div>
+        <div class="modal-head-sub" id="analysisModalSub">—</div>
+      </div>
+      <button class="modal-close" onclick="closeAnalysisModal()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:17px;height:17px;stroke-width:2.4;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" style="max-height:65vh;overflow-y:auto;">
+      <div id="analysisModalBody" style="font-size:13px;line-height:1.75;color:#0f172a;white-space:pre-wrap;"></div>
+    </div>
+    <div style="padding:12px 20px 16px;border-top:1px solid rgba(15,23,42,0.06);display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn-ghost" style="padding:8px 14px;font-size:12px;color:#ef4444;" id="analysisModalDeleteBtn">删除</button>
+      <button class="btn-primary" style="padding:8px 14px;font-size:12px;" onclick="closeAnalysisModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 历史会话 -->
   <div>
     <div class="group-title">历史会话</div>
     <div id="sessionList" class="glass-card"></div>
@@ -1840,12 +1863,13 @@ window.sendMessage = async function(){
 async function loadSavedAnalyses(){
   const list = await fetch('/api/analyses').then(r=>r.json()).catch(()=>[]);
   const box = document.getElementById('savedAnalyses');
-  if (!list || list.length===0){ box.innerHTML = emptyHTML('暂无保存的分析','完成一次 AI 分析并点「保存为分析结论」后这里会出现'); return; }
+  if (!list || list.length===0){ box.innerHTML = emptyHTML('暂无保存的分析','在对话中点击 AI 回复卡片的「保存为分析结论」后这里会出现'); return; }
   box.innerHTML = '';
   list.slice(0,50).forEach((a,i)=>{
     const out = (a.output||'').slice(0,200);
     const row = document.createElement('div');
     row.className = 'list-row' + (i<list.slice(0,50).length-1 ? '' : '');
+    row.style.cursor = 'pointer';
     row.innerHTML = `
       <div class="icon-wrap g-indigo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
@@ -1855,15 +1879,33 @@ async function loadSavedAnalyses(){
           #${a.id} · ${fmtTime(a.created_at)}
           ${a.mode?`<span class="pill p-indigo" style="padding:2.5px 8px;font-size:10.5px;margin-left:4px;">${escapeHtml(a.mode)}</span>`:''}
         </div>
-        <div class="row-sub" style="font-size:12.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(out)}</div>
+        <div class="row-sub" style="font-size:12.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(out)}${(a.output||'').length > 200 ? '…' : ''}</div>
         ${a.agent_used?`<div class="row-sub" style="font-size:10.5px;margin-top:4px;">来源: ${escapeHtml(a.agent_used)}</div>`:''}
       </div>
-      <button class="btn-ghost" style="padding:6px 9px;font-size:11px;color:#ef4444;margin-right:4px;flex-shrink:0;" onclick="deleteAnalysis(${a.id})" title="删除分析">
+      <button class="btn-ghost" style="padding:6px 9px;font-size:11px;color:#ef4444;margin-right:4px;flex-shrink:0;" onclick="event.stopPropagation();deleteAnalysis(${a.id})" title="删除分析">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
       </button>`;
+    row.onclick = () => viewAnalysis(a);
     box.appendChild(row);
   });
 }
+window.viewAnalysis = function(a){
+  document.getElementById('analysisModalTitle').textContent = `分析 #${a.id}`;
+  document.getElementById('analysisModalSub').textContent =
+    `${fmtTime(a.created_at)}${a.mode?' · '+a.mode:''}${a.agent_used?' · '+a.agent_used:''}`;
+  document.getElementById('analysisModalBody').textContent = a.output || '(空)';
+  const delBtn = document.getElementById('analysisModalDeleteBtn');
+  delBtn.onclick = () => {
+    if (confirm('确定删除这条分析结论？')) {
+      deleteAnalysis(a.id);
+      closeAnalysisModal();
+    }
+  };
+  document.getElementById('analysisModal').classList.add('open');
+};
+window.closeAnalysisModal = function(){
+  document.getElementById('analysisModal').classList.remove('open');
+};
 
 // =====================================================
 // 情境-反应对照库

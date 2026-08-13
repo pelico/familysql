@@ -451,6 +451,7 @@ func main() {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil { c.JSON(400, gin.H{"error": "invalid id"}); return }
 		db.Exec("DELETE FROM session_turns WHERE session_id = ?", id)
+		db.Exec("DELETE FROM analyses WHERE session_id = ?", id)
 		_, err = db.Exec("DELETE FROM sessions WHERE id = ?", id)
 		if err != nil { c.JSON(500, gin.H{"error": err.Error()}); return }
 		c.JSON(200, gin.H{"ok": true})

@@ -526,20 +526,7 @@ func sessionMessagesHandler(c *gin.Context) {
 	turns = append(turns, turn)
 	newMessagesJSON, _ := json.Marshal(turns)
 
-	// 5.1 每个成功的 reply 各存一条 analyses（方便校准仪表盘逐条复检）
-	for _, r := range replies {
-		if r.Reply == "" {
-			continue
-		}
-		agent := fmt.Sprintf("session#%d profile#%d(%s)", sid, r.ProfileID, r.ProfileName)
-		idsStr := intJoin(r.UsedEventIDs, ",")
-		db.Exec(
-			"INSERT INTO analyses (based_on_event_ids, agent_used, output, mode, prompt_version, session_id) VALUES (?,?,?,?,?,?)",
-			idsStr, agent, r.Reply, modeV, promptVersion, sid,
-		)
-	}
-
-	// 5.2 更新 sessions
+	// 5) 更新 sessions
 	db.Exec(
 		"UPDATE sessions SET messages = ?, updated_at = ? WHERE id = ?",
 		string(newMessagesJSON), now, sid,
