@@ -975,7 +975,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
         </span>
       </div>
-      <div class="expand-box" id="visionBox" style="display:none;">
+      <div class="expand-box" id="visionBox">
         <div class="expand-inner">
           <div style="display:flex;gap:10px;align-items:flex-start;">
             <div id="visionImgPreview" style="display:none;position:relative;">
@@ -1381,17 +1381,24 @@ function updateSev(v){
 window.toggleVisionExtract = function(){
   state.visionOpen = !state.visionOpen;
   const box = document.getElementById('visionBox');
-  const chev = document.getElementById('visionChev');
+  const chevEl = document.getElementById('visionChev');
+  const svg = chevEl && chevEl.querySelector('svg');
   if (state.visionOpen) {
-    box.style.display = 'block';
-    chev.querySelector('svg').style.transform = 'rotate(90deg)';
+    box.classList.add('open');
+    if (svg) svg.style.transform = 'rotate(90deg)';
   } else {
-    box.style.display = 'none';
-    chev.querySelector('svg').style.transform = 'rotate(0)';
+    box.classList.remove('open');
+    if (svg) svg.style.transform = 'rotate(0)';
   }
 };
-document.getElementById('visionChev').querySelector('svg').style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
-document.getElementById('visionChev').querySelector('svg').style.transform = 'rotate(0)';
+(function(){
+  const c = document.getElementById('visionChev');
+  const svg = c && c.querySelector('svg');
+  if (svg) {
+    svg.style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+    svg.style.transform = 'rotate(0)';
+  }
+})();
 
 window.onVisionPickImage = async function(e){
   const f = e.target.files && e.target.files[0];
@@ -1594,16 +1601,21 @@ window.toggleQuickNote = function(){
   state.quickOpen = !state.quickOpen;
   const box = document.getElementById('quickBox');
   const chev = document.getElementById('quickChev');
+  const svg = chev && chev.querySelector('svg');
   if (state.quickOpen) {
     box.classList.add('open');
-    chev.querySelector('svg').style.transform = 'rotate(90deg)';
-    setTimeout(()=>document.getElementById('quickContent').focus(), 260);
+    if (svg) svg.style.transform = 'rotate(90deg)';
+    setTimeout(()=>{ const qc = document.getElementById('quickContent'); if (qc) qc.focus(); }, 260);
   } else {
     box.classList.remove('open');
-    chev.querySelector('svg').style.transform = 'rotate(0)';
+    if (svg) svg.style.transform = 'rotate(0)';
   }
 };
-document.getElementById('quickChev').querySelector('svg').style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+(function(){
+  const c = document.getElementById('quickChev');
+  const svg = c && c.querySelector('svg');
+  if (svg) svg.style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+})();
 
 // =====================================================
 // 记录提交
