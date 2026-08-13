@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -145,18 +146,33 @@ type factExtractOutput struct {
 	Notes string `json:"notes"`
 }
 
-// runFactExtract 调用第一个活跃 profile 对本轮用户输入做事实提取。
+// runFactExtract 调用指定 profile 对本轮用户输入做事实提取。
+// profileID > 0 时用指定模型（事实提取专用），否则降级用第一个活跃 profile。
 // 输入支持多模态（imageData=data URI 非空时会把图也发过去）。提取失败返回空 candidates + error；调用方可以决定是否忽略。
-func runFactExtract(userText, imageData string) ([]FactCandidate, error) {
-	profiles, err := listActiveProfiles()
-	if err != nil || len(profiles) == 0 {
-		if len(profiles) == 0 {
-			return nil, fmt.Errorf("没有可用 profile 做事实提取")
+func runFactExtract(userText, imageData string, profileID int) ([]FactCandidate, error) {
+	var p LLMProfile
+	if profileID > 0 {
+		pp, err := getProfileByID(profileID)
+		if err != nil || pp == nil {
+			// 指定的模型不存在，降级用第一个活跃
+			profiles, _ := listActiveProfiles()
+			if len(profiles) == 0 {
+				return nil, fmt.Errorf("没有可用 profile 做事实提取")
+			}
+			p = profiles[0]
+		} else {
+			p = *pp
 		}
-		return nil, err
+	} else {
+		profiles, err := listActiveProfiles()
+		if err != nil || len(profiles) == 0 {
+			if len(profiles) == 0 {
+				return nil, fmt.Errorf("没有可用 profile 做事实提取")
+			}
+			return nil, err
+		}
+		p = profiles[0]
 	}
-	// 用第一个活跃 profile 来做"提取"这件轻活即可（提取是辅助，不希望消耗太多配额）
-	p := profiles[0]
 	var userMsg APIMessage
 	if imageData != "" {
 		parts := []MultiModalContentPart{{Type: "text", Text: userText}}
@@ -324,7 +340,7 @@ func createSessionHandler(c *gin.Context) {
 
 func listSessionsHandler(c *gin.Context) {
 	rows, err := db.Query(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100")
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100")
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -333,14 +349,19 @@ func listSessionsHandler(c *gin.Context) {
 	var res []map[string]interface{}
 	for rows.Next() {
 		var id int
+		var factPID sql.NullInt64
 		var mode, fp, ft, profs, createdAt, updatedAt *string
-		rows.Scan(&id, &mode, &fp, &ft, &profs, &createdAt, &updatedAt)
-		res = append(res, map[string]interface{}{
+		rows.Scan(&id, &mode, &fp, &ft, &profs, &factPID, &createdAt, &updatedAt)
+		row := map[string]interface{}{
 			"id": id,
 			"mode": sval(mode), "filter_people": sval(fp), "filter_tags": sval(ft),
 			"profile_ids": parseJSONInts(sval(profs)),
 			"created_at": sval(createdAt), "updated_at": sval(updatedAt),
-		})
+		}
+		if factPID.Valid {
+			row["fact_profile_id"] = int(factPID.Int64)
+		}
+		res = append(res, row)
 	}
 	c.JSON(200, res)
 }
@@ -363,11 +384,12 @@ func parseJSONInts(s string) []int {
 
 func getSessionHandler(c *gin.Context) {
 	var id int
+	var factPID sql.NullInt64
 	var mode, fp, ft, profs, messagesJSON, createdAt, updatedAt *string
 	err := db.QueryRow(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, messages, created_at, updated_at FROM sessions WHERE id = ?",
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages, created_at, updated_at FROM sessions WHERE id = ?",
 		c.Param("id"),
-	).Scan(&id, &mode, &fp, &ft, &profs, &messagesJSON, &createdAt, &updatedAt)
+	).Scan(&id, &mode, &fp, &ft, &profs, &factPID, &messagesJSON, &createdAt, &updatedAt)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
@@ -379,13 +401,17 @@ func getSessionHandler(c *gin.Context) {
 			normalizeLegacyTurn(&turns[i])
 		}
 	}
-	c.JSON(200, gin.H{
+	resp := gin.H{
 		"id": id,
 		"mode": sval(mode), "filter_people": sval(fp), "filter_tags": sval(ft),
 		"profile_ids": parseJSONInts(sval(profs)),
 		"turns":       turns,
 		"created_at":  sval(createdAt), "updated_at": sval(updatedAt),
-	})
+	}
+	if factPID.Valid {
+		resp["fact_profile_id"] = int(factPID.Int64)
+	}
+	c.JSON(200, resp)
 }
 
 // =====================================================
@@ -406,11 +432,12 @@ func sessionMessagesHandler(c *gin.Context) {
 
 	// 读会话
 	var sid int
+	var factProfileID sql.NullInt64
 	var mode, filterPeople, filterTags, profileIDsJSON, messagesJSON *string
 	err := db.QueryRow(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, messages FROM sessions WHERE id = ?",
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages FROM sessions WHERE id = ?",
 		idStr,
-	).Scan(&sid, &mode, &filterPeople, &filterTags, &profileIDsJSON, &messagesJSON)
+	).Scan(&sid, &mode, &filterPeople, &filterTags, &profileIDsJSON, &factProfileID, &messagesJSON)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
@@ -500,7 +527,7 @@ func sessionMessagesHandler(c *gin.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cs, e := runFactExtract(payload.UserContent, payload.ImageData)
+		cs, e := runFactExtract(payload.UserContent, payload.ImageData, int(factProfileID.Int64))
 		if e != nil {
 			extractErrStr = e.Error()
 			return
@@ -786,7 +813,7 @@ func visionExtractHandler(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "图片需小于 5MB"})
 		return
 	}
-	cands, err := runFactExtract(payload.UserText, payload.ImageData)
+	cands, err := runFactExtract(payload.UserText, payload.ImageData, 0)
 	if err != nil {
 		// 提取失败仍返回一条 draft，让用户可以手动编辑后入库
 		cands = []FactCandidate{{

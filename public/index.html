@@ -847,6 +847,12 @@
         <div class="group-title" style="padding:0 2px 6px;">并行调用的模型（多选并排对比）</div>
         <div id="profilePicker" style="display:flex;flex-direction:column;gap:8px;"></div>
       </div>
+      <div style="margin-bottom:14px;">
+        <div class="group-title" style="padding:0 2px 6px;">事实提取专用模型（避免与分析模型同源 429）</div>
+        <select id="factProfileSelect" class="field" style="padding:9px 11px;font-size:12.5px;">
+          <option value="0">默认（用第一个活跃模型）</option>
+        </select>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
         <input id="sessPeople" placeholder="按人物限定事实（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
         <input id="sessTags" placeholder="按标签限定事实（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
@@ -1429,23 +1435,32 @@ window.runVisionExtract = async function(){
     btn.disabled = false; btn.textContent = 'AI 识别 → 生成候选事实';
   }
 };
-// 在 #visionBox 区域监听粘贴
+// 全局粘贴监听：支持在「AI识图」和「会话消息输入区」两个位置 Ctrl+V 粘贴图片
 document.addEventListener('paste', function(ev){
   const items = ev.clipboardData && ev.clipboardData.items;
   if (!items) return;
   for (let i = 0; i < items.length; i++) {
     if (items[i].type.startsWith('image/')) {
-      // 仅在 visionBox 展开时自动粘贴，或用户焦点在 visionText 时
       const active = document.activeElement;
+      // 判断粘贴目标：visionBox（AI识图）或会话消息输入区
       const inVision = active && (active.id === 'visionText' || (active.closest && active.closest('#visionBox')));
-      if (!inVision && !state.visionOpen) return;
+      const inSession = active && (active.id === 'msgInput' || (active.closest && active.closest('#activeSessionBox')));
+      if (!inVision && !inSession && !state.visionOpen) return;
       const file = items[i].getAsFile();
       if (file && file.size <= 5*1024*1024) {
         const reader = new FileReader();
         reader.onload = () => {
-          state.visionImageData = reader.result;
-          document.getElementById('visionPreviewImg').src = state.visionImageData;
-          document.getElementById('visionImgPreview').style.display = 'inline-block';
+          if (inSession) {
+            // 粘贴到会话消息区
+            state.pendingImageData = reader.result;
+            document.getElementById('imgPreviewImg').src = state.pendingImageData;
+            document.getElementById('imgPreview').style.display = 'inline-block';
+          } else {
+            // 粘贴到 AI 识图区
+            state.visionImageData = reader.result;
+            document.getElementById('visionPreviewImg').src = state.visionImageData;
+            document.getElementById('visionImgPreview').style.display = 'inline-block';
+          }
         };
         reader.readAsDataURL(file);
       }
@@ -1852,6 +1867,14 @@ function renderProfilePicker(){
       </div>
     </div>`;
   }).join('');
+  // 同步填充事实提取模型下拉框
+  const sel = document.getElementById('factProfileSelect');
+  if (sel) {
+    const cur = sel.value || '0';
+    sel.innerHTML = '<option value="0">默认（用第一个活跃模型）</option>' +
+      list.map(p => `<option value="${p.id}">${escapeHtml(p.name)} — ${escapeHtml(p.model)}</option>`).join('');
+    sel.value = cur;
+  }
 }
 window.toggleSessProf = function(id, on){ /* kept for compat but no longer primary */ };
 window.toggleSessProfClick = function(id, el){
@@ -1862,16 +1885,18 @@ window.toggleSessProfClick = function(id, el){
   }
 };
 window.createSession = async function(){
+  const factPID = parseInt(document.getElementById('factProfileSelect').value, 10) || 0;
   const body = {
     mode: state.chosenMode,
     people: document.getElementById('sessPeople').value.trim(),
     tags: document.getElementById('sessTags').value.trim(),
     profile_ids: Array.from(state.sessionProfiles),
   };
+  if (factPID > 0) body.fact_profile_id = factPID;
   const res = await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const r = await res.json().catch(()=>({}));
   if (!res.ok){ alert('失败: '+(r.error||'')); return; }
-  state.activeSession = {id:r.id, mode:body.mode, filter_people:body.people, filter_tags:body.tags, turns:[]};
+  state.activeSession = {id:r.id, mode:body.mode, filter_people:body.people, filter_tags:body.tags, turns:[], fact_profile_id: factPID||undefined};
   renderActiveSession();
   loadSessionList();
 };
