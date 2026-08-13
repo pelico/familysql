@@ -444,6 +444,10 @@
     cursor: pointer;
     transition: all .18s;
     border: 1.5px solid transparent;
+    flex-wrap: nowrap;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
   .prof-item:hover { background: rgba(15,23,42,0.03); }
   .prof-item.checked {
@@ -475,8 +479,10 @@
   .reply-grid {
     display: grid; grid-template-columns: 1fr; gap: 10px;
   }
-  @media (min-width: 640px) {
+  @media (min-width: 760px) {
     .reply-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  }
+  @media (min-width: 1100px) {
     .reply-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
   }
   .reply-card {
@@ -485,6 +491,7 @@
     border-radius: 14px; padding: 13px;
     position: relative; overflow: hidden;
     box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+    min-width: 0;
   }
   .reply-card.err {
     background: rgba(239,68,68,0.05);
@@ -498,6 +505,7 @@
     display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
     padding-bottom: 9px;
     border-bottom: 1px dashed rgba(15,23,42,0.08);
+    min-width: 0;
   }
   .reply-head .ra {
     width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
@@ -505,9 +513,9 @@
     font-size: 11px; font-weight: 700; color: white;
     background: linear-gradient(135deg,#8b5cf6,#7c3aed);
   }
-  .reply-head .rname { font-size: 12px; font-weight: 700; color: #4338ca; }
-  .reply-head .rmodel { font-size: 10.5px; color: #94a3b8; font-weight: 500; }
-  .reply-ref { margin-left: auto; font-size: 10.5px; color: #94a3b8; font-weight: 500; }
+  .reply-head .rname { font-size: 12px; font-weight: 700; color: #4338ca; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reply-head .rmodel { font-size: 10.5px; color: #94a3b8; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reply-ref { margin-left: auto; font-size: 10.5px; color: #94a3b8; font-weight: 500; flex-shrink: 0; }
   .reply-body {
     white-space: pre-wrap; word-break: break-word;
     font-family: inherit; font-size: 13px;
@@ -837,7 +845,7 @@
       </div>
       <div style="margin-bottom:14px;">
         <div class="group-title" style="padding:0 2px 6px;">并行调用的模型（多选并排对比）</div>
-        <div id="profilePicker"></div>
+        <div id="profilePicker" style="display:flex;flex-direction:column;gap:8px;"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
         <input id="sessPeople" placeholder="按人物限定事实（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
@@ -1589,7 +1597,7 @@ function renderProfilePicker(){
         <div style="font-size:13px;font-weight:700;color:#0f172a;">${escapeHtml(p.name)}</div>
         <div style="font-size:10.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.model)}</div>
       </div>
-    </label>`;
+    </div>`;
   }).join('');
 }
 window.toggleSessProf = function(id, on){ /* kept for compat but no longer primary */ };
