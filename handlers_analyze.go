@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,12 +24,15 @@ type EventRow struct {
 
 // FactCandidate 是某一轮对话中被提取出来、等待人工确认的候选事实。
 type FactCandidate struct {
+	ID                 int    `json:"id,omitempty"` // 落库后的事件ID（确认后填充）
 	SuggestedTimestamp string `json:"suggested_timestamp"`
 	People             string `json:"people"`
 	Tags               string `json:"tags"`
+	Severity           *int   `json:"severity,omitempty"`
 	Content            string `json:"content"`
-	Status             string `json:"status"`
-	EventID            *int   `json:"event_id,omitempty"`
+	Status             string `json:"status"` // "pending" / "confirmed" / "dismissed"
+	TimestampUncertain bool   `json:"timestamp_uncertain,omitempty"`
+	ExtractError       string `json:"extract_error,omitempty"`
 }
 
 // PerProfileReply 是单个模型对一轮问题的回复；某个模型失败时 Error 非空。
@@ -43,9 +47,12 @@ type PerProfileReply struct {
 }
 
 // Turn 是一轮完整问答。Replies 存多模型回复（并行返回）。
+// Candidates 是本轮（从用户输入+图片里）提取出的待审核事实。
+// ImageData 存 base64 data URI（仅最新一轮前端会显示，历史轮不重复存以节省空间）。
 type Turn struct {
 	UserContent    string            `json:"user_content"`
 	HadImage       bool              `json:"had_image"`
+	ImageData      string            `json:"image_data,omitempty"` // data:image/jpeg;base64,...
 	Replies        []PerProfileReply `json:"replies"`
 	Candidates     []FactCandidate   `json:"candidates,omitempty"`
 	CreatedAt      string            `json:"created_at"`
@@ -95,6 +102,106 @@ func modeSystemPrompt(mode string) string {
 	default:
 		return `你是客观的事实整理助理。只做事实汇总，不下定性结论。每条结论标注对应 event_id。`
 	}
+}
+
+// ===== 事实提取专用 prompt（完全不做推断，只做"转录+结构化"，与分析prompt隔离）
+const factExtractSystemPrompt = `你的任务是事实提取员。只做两件事：
+1. 把用户输入里、以及附带图片里（如果有）能客观观察到的"事件/对话/场景"，一条条拆出来；
+2. 每条输出严格的结构化字段。
+
+硬性要求：
+- 绝不做定性推断，绝不贴人格标签，绝不揣摩动机。看到"摔了碗"就写摔了碗，不要写"XX在生气"。
+- 人物名只能写原文/图片里出现的称呼（如"我妈"、"小王"、"照片里的中年女性"），猜不出就留空。
+- 时间：能从输入里读到（"昨天下午""2026-08-12 18:00"）就填；读不到就填当前时间，但要把 timestamp_uncertain=true。
+- 严重度：只填数字 1~5。轻微背景事=1，摩擦顶嘴=2，明确冲突=3，人身攻击/要挟=4，家暴/涉及违法=5；没有线索就填 1。
+- 标签：从输入里抓几个关键词（逗号分隔），没有就留空。
+- 最终输出必须是纯 JSON，严格匹配如下格式（不要加任何前置解释、不要用代码块包裹也可以）：
+{
+  "facts": [
+    {
+      "timestamp": "YYYY-MM-DDTHH:MM:SS+08:00",
+      "timestamp_uncertain": true,
+      "people": "...",
+      "tags": "...",
+      "severity": 1,
+      "content": "只写行为本身，不写推断"
+    }
+  ],
+  "notes": "如果有无法归入的背景说明可以写在这里；没内容就写空字符串"
+}
+
+如果用户输入完全是在提问/闲聊、没有任何可提取的事实，返回 {"facts":[],"notes":""}。`
+
+// factExtractOutput 是提取结果的 JSON 结构
+type factExtractOutput struct {
+	Facts []struct {
+		Timestamp          string `json:"timestamp"`
+		TimestampUncertain bool   `json:"timestamp_uncertain"`
+		People             string `json:"people"`
+		Tags               string `json:"tags"`
+		Severity           int    `json:"severity"`
+		Content            string `json:"content"`
+	} `json:"facts"`
+	Notes string `json:"notes"`
+}
+
+// runFactExtract 调用第一个活跃 profile 对本轮用户输入做事实提取。
+// 输入支持多模态（imageData=data URI 非空时会把图也发过去）。提取失败返回空 candidates + error；调用方可以决定是否忽略。
+func runFactExtract(userText, imageData string) ([]FactCandidate, error) {
+	profiles, err := listActiveProfiles()
+	if err != nil || len(profiles) == 0 {
+		if len(profiles) == 0 {
+			return nil, fmt.Errorf("没有可用 profile 做事实提取")
+		}
+		return nil, err
+	}
+	// 用第一个活跃 profile 来做"提取"这件轻活即可（提取是辅助，不希望消耗太多配额）
+	p := profiles[0]
+	var userMsg APIMessage
+	if imageData != "" {
+		parts := []MultiModalContentPart{{Type: "text", Text: userText}}
+		parts = append(parts, MultiModalContentPart{
+			Type:     "image_url",
+			ImageURL: map[string]string{"url": imageData},
+		})
+		userMsg = APIMessage{Role: "user", ContentParts: parts}
+	} else {
+		userMsg = APIMessage{Role: "user", Content: userText}
+	}
+	msgs := []APIMessage{
+		{Role: "system", Content: factExtractSystemPrompt},
+		userMsg,
+	}
+	var out factExtractOutput
+	if err := callLLMForJSON(p, msgs, &out); err != nil {
+		return nil, err
+	}
+	cands := make([]FactCandidate, 0, len(out.Facts))
+	for _, f := range out.Facts {
+		ts := f.Timestamp
+		uncertain := f.TimestampUncertain
+		if strings.TrimSpace(ts) == "" {
+			ts = time.Now().Format(time.RFC3339)
+			uncertain = true
+		}
+		sev := f.Severity
+		if sev <= 0 {
+			sev = 1
+		}
+		if sev > 5 {
+			sev = 5
+		}
+		cands = append(cands, FactCandidate{
+			SuggestedTimestamp: ts,
+			People:             f.People,
+			Tags:               f.Tags,
+			Severity:           &sev,
+			Content:            strings.TrimSpace(f.Content),
+			Status:             "pending",
+			TimestampUncertain: uncertain,
+		})
+	}
+	return cands, nil
 }
 
 // =====================================================
@@ -284,11 +391,14 @@ func sessionMessagesHandler(c *gin.Context) {
 	var payload struct {
 		UserContent string `json:"user_content" binding:"required"`
 		HadImage    bool   `json:"had_image"`
+		ImageData   string `json:"image_data"` // data:image/jpeg;base64,... 前端传入
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	payload.HadImage = payload.HadImage || payload.ImageData != ""
+
 	// 读会话
 	var sid int
 	var mode, filterPeople, filterTags, profileIDsJSON, messagesJSON *string
@@ -343,16 +453,32 @@ func sessionMessagesHandler(c *gin.Context) {
 		return
 	}
 
-	// 4) 每个 profile 并发调用
+	// 4) 两条独立并发路径：
+	//    A. 正常分析回复（按所选模型并行）
+	//    B. 事实提取（只跑一次，使用第一个活跃profile）
 	replies := make([]PerProfileReply, len(profiles))
+	var candidates []FactCandidate
+	var extractErrStr string
 	var wg sync.WaitGroup
+
+	// Path A
 	for i, p := range profiles {
 		wg.Add(1)
 		go func(idx int, prof LLMProfile) {
 			defer wg.Done()
 			msgs := []APIMessage{systemMsg}
 			msgs = append(msgs, historyMsgs...)
-			msgs = append(msgs, APIMessage{Role: "user", Content: payload.UserContent})
+			// 这一轮 user message：有图片就走多模态结构发给分析模型（如果是视觉模型）
+			if payload.ImageData != "" {
+				parts := []MultiModalContentPart{{Type: "text", Text: payload.UserContent}}
+				parts = append(parts, MultiModalContentPart{
+					Type:     "image_url",
+					ImageURL: map[string]string{"url": payload.ImageData},
+				})
+				msgs = append(msgs, APIMessage{Role: "user", ContentParts: parts})
+			} else {
+				msgs = append(msgs, APIMessage{Role: "user", Content: payload.UserContent})
+			}
 			reply, err := callLLMByProfile(prof, msgs)
 			r := PerProfileReply{
 				ProfileID: prof.ID, ProfileName: prof.Name, Model: prof.Model,
@@ -364,14 +490,37 @@ func sessionMessagesHandler(c *gin.Context) {
 			replies[idx] = r
 		}(i, p)
 	}
+
+	// Path B：事实提取
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cs, e := runFactExtract(payload.UserContent, payload.ImageData)
+		if e != nil {
+			extractErrStr = e.Error()
+			return
+		}
+		candidates = cs
+	}()
+
 	wg.Wait()
 
 	// 5) 追加 turn、写 analyses、更新 sessions
 	now := time.Now().UTC().Format(time.RFC3339)
+	// 如果提取失败，把错误作为一条特殊 candidate 存进去（status=pending 带 ExtractError，前端会灰色提示但不影响正常写入）
+	if extractErrStr != "" && len(candidates) == 0 {
+		candidates = []FactCandidate{{
+			Status:       "extract_error",
+			ExtractError: extractErrStr,
+			Content:      payload.UserContent, // 兜底让用户仍然可以手动编辑
+		}}
+	}
 	turn := Turn{
 		UserContent: payload.UserContent,
 		HadImage:    payload.HadImage,
+		ImageData:   payload.ImageData,
 		Replies:     replies,
+		Candidates:  candidates,
 		CreatedAt:   now,
 	}
 	turns = append(turns, turn)
@@ -530,4 +679,100 @@ func resolveProfiles(chosenIDs []int) []LLMProfile {
 		return all
 	}
 	return out
+}
+
+// =====================================================
+//  候选事实确认/丢弃（用户审核面板调用）
+// =====================================================
+// confirmFactCandidateHandler: 把 turn 的某个 candidate 写入 events 表，并回写状态/ID
+func confirmFactCandidateHandler(c *gin.Context) {
+	sidStr := c.Param("sid")
+	turnIdxStr := c.Param("tidx")
+	candIdxStr := c.Param("cidx")
+	sid, err1 := strconv.Atoi(sidStr)
+	turnIdx, err2 := strconv.Atoi(turnIdxStr)
+	candIdx, err3 := strconv.Atoi(candIdxStr)
+	if err1 != nil || err2 != nil || err3 != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var body struct {
+		Timestamp string  `json:"timestamp"`
+		People    string  `json:"people"`
+		Tags      string  `json:"tags"`
+		Severity  *int    `json:"severity"`
+		Content   string  `json:"content" binding:"required"`
+		Status    *string `json:"status"` // "confirmed" / "dismissed"
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	status := "confirmed"
+	if body.Status != nil && *body.Status == "dismissed" {
+		status = "dismissed"
+	}
+
+	// 读会话和 turn
+	var messagesJSON *string
+	err := db.QueryRow("SELECT messages FROM sessions WHERE id = ?", sid).Scan(&messagesJSON)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "会话不存在"})
+		return
+	}
+	var turns []Turn
+	if messagesJSON != nil && *messagesJSON != "" {
+		json.Unmarshal([]byte(*messagesJSON), &turns)
+	}
+	if turnIdx < 0 || turnIdx >= len(turns) {
+		c.JSON(404, gin.H{"error": "turn index out of range"})
+		return
+	}
+	cs := turns[turnIdx].Candidates
+	if candIdx < 0 || candIdx >= len(cs) {
+		c.JSON(404, gin.H{"error": "candidate index out of range"})
+		return
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if status == "confirmed" {
+		sev := 1
+		if body.Severity != nil && *body.Severity >= 1 && *body.Severity <= 5 {
+			sev = *body.Severity
+		} else if cs[candIdx].Severity != nil {
+			sev = *cs[candIdx].Severity
+		}
+		ts := body.Timestamp
+		if strings.TrimSpace(ts) == "" {
+			ts = cs[candIdx].SuggestedTimestamp
+		}
+		if strings.TrimSpace(ts) == "" {
+			ts = now
+		}
+		// 写入 events.status = "reviewed"（已审核写入），severity_self 存用户确认的值
+		res, e := db.Exec(
+			`INSERT INTO events (timestamp, people, tags, severity_self, content, status, created_at) VALUES (?,?,?,?,?,"reviewed",?)`,
+			ts, body.People, body.Tags, sev, body.Content, now,
+		)
+		if e != nil {
+			c.JSON(500, gin.H{"error": e.Error()})
+			return
+		}
+		lid, _ := res.LastInsertId()
+		cs[candIdx].ID = int(lid)
+		cs[candIdx].Status = "confirmed"
+		cs[candIdx].SuggestedTimestamp = ts
+		cs[candIdx].People = body.People
+		cs[candIdx].Tags = body.Tags
+		cs[candIdx].Severity = &sev
+		cs[candIdx].Content = body.Content
+	} else {
+		cs[candIdx].Status = "dismissed"
+	}
+	turns[turnIdx].Candidates = cs
+
+	newJSON, _ := json.Marshal(turns)
+	db.Exec("UPDATE sessions SET messages = ?, updated_at = ? WHERE id = ?", string(newJSON), now, sid)
+	c.JSON(200, gin.H{"ok": true, "candidate": cs[candIdx]})
 }

@@ -868,9 +868,22 @@
       </div>
       <div id="turnsList" style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:18px;"></div>
       <div style="padding:14px 16px 16px;border-top:1px solid rgba(15,23,42,0.06);">
-        <textarea id="msgInput" rows="3" class="field" placeholder="提一个基于已记录事实的问题..."></textarea>
+        <div id="imgPreview" style="display:none;position:relative;margin-bottom:10px;">
+          <img id="imgPreviewImg" style="max-height:140px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;">
+          <button class="btn-ghost" style="position:absolute;top:6px;right:6px;padding:4px 7px;font-size:11px;background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.08);" onclick="clearImage()">移除</button>
+        </div>
+        <textarea id="msgInput" rows="3" class="field" placeholder="提一个基于已记录事实的问题，或附带一张截图…"></textarea>
+        <input type="file" id="imgFileInput" accept="image/*" style="display:none;" onchange="onPickImage(event)">
         <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <span id="msgHint" style="font-size:11px;color:#94a3b8;font-weight:500;"></span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn-ghost" style="padding:9px 12px;font-size:12px;" onclick="document.getElementById('imgFileInput').click()" title="插入截图/图片">
+              <span style="display:inline-flex;align-items:center;gap:5px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:14px;height:14px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                图片
+              </span>
+            </button>
+            <span id="msgHint" style="font-size:11px;color:#94a3b8;font-weight:500;"></span>
+          </div>
           <button id="sendBtn" class="btn-primary" style="width:auto;padding:10px 18px;" onclick="sendMessage()">发送</button>
         </div>
       </div>
@@ -1151,6 +1164,7 @@ const modeIcons = {
 // 工具函数
 // =====================================================
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function escapeAttr(s){return escapeHtml(s);}
 function fmtTime(ts){try{return new Date(ts).toLocaleString('zh-CN',{hour12:false});}catch(e){return ts||'';}}
 function fmtDay(ts){try{return new Date(ts).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});}catch(e){return ts||'';}}
 function pad(n){return String(n).padStart(2,'0');}
@@ -1621,7 +1635,7 @@ function renderActiveSession(){
   const turns = s.turns||[];
   const box = document.getElementById('turnsList');
   box.innerHTML = '';
-  turns.forEach(t=>{
+  turns.forEach((t, tIdx)=>{
     const reps = t.replies||[];
     const cols = reps.length >= 3 ? 3 : (reps.length === 2 ? 2 : 1);
     const wrap = document.createElement('div');
@@ -1633,7 +1647,10 @@ function renderActiveSession(){
         </span>
         ${t.had_image?'<span style="display:inline-flex;align-items:center;gap:3px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:11px;height:11px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>含图</span>':''}
       </div>
-      <div class="user-bubble" style="margin-top:6px;">${escapeHtml(t.user_content)}</div>
+      <div class="user-bubble" style="margin-top:6px;">
+        ${t.user_content ? escapeHtml(t.user_content) : ''}
+        ${(t.image_data && t.image_data.length > 30) ? `<div style="margin-top:10px;"><img src="${escapeHtml(t.image_data)}" style="max-width:100%;max-height:360px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;"></div>` : ''}
+      </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:14px;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:5px;">
         <span style="width:2px;height:9px;border-radius:1px;background:linear-gradient(180deg,#6366f1,#8b5cf6);"></span>
         AI 回复${reps.length>1?'（'+reps.length+' 模型并行对比）':''}
@@ -1657,10 +1674,117 @@ function renderActiveSession(){
             ${r.reply ? `<div class="reply-save"><button onclick='saveReply(${JSON.stringify(r).replace(/'/g,"&#39;")})'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>保存为分析结论</button></div>`:''}
           </div>`;
         }).join('')}
-      </div>`;
+      </div>
+      ${renderCandidatesPanel(t.candidates||[], s.id, tIdx)}
+    `;
     box.appendChild(wrap);
   });
 }
+// 候选事实审核面板：每张卡片可编辑字段 → 确认写入 events 或丢弃
+function renderCandidatesPanel(cs, sid, tIdx){
+  if (!cs || !cs.length) {
+    return `<div style="margin-top:12px;padding:10px 14px;border-radius:10px;border:1px dashed rgba(15,23,42,0.08);background:rgba(248,250,252,0.5);font-size:11.5px;color:#64748b;">
+      本轮未提取到候选事实（提取任务独立于分析，若模型不支持视觉或返回格式异常，候选可能为空）。
+    </div>`;
+  }
+  return `
+    <div style="margin-top:16px;">
+      <div style="font-size:11px;color:#0f172a;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:12px;height:12px;stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.422 48.422 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/></svg>
+        待审核事实（${cs.length} 条） — 改完点「确认写入」才进事实库
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${cs.map((c,cIdx)=>renderCandidateCard(c,sid,tIdx,cIdx)).join('')}
+      </div>
+    </div>`;
+}
+function renderCandidateCard(c, sid, tIdx, cIdx){
+  const uncert = !!c.timestamp_uncertain;
+  const st = c.status || 'pending';
+  const isDone = st==='confirmed' || st==='dismissed';
+  const sev = (c.severity != null && c.severity !== undefined) ? c.severity : 1;
+  const badgeColor = st==='confirmed' ? 'background:#bbf7d0;color:#166534;' :
+                     st==='dismissed' ? 'background:#fee2e2;color:#991b1b;' :
+                     st==='extract_error' ? 'background:#e2e8f0;color:#334155;' :
+                     'background:#fef3c7;color:#92400e;';
+  const tag = st==='confirmed' ? '已写入 #'+(c.id||'?') :
+              st==='dismissed' ? '已丢弃' :
+              st==='extract_error' ? '提取失败（可改后手动记录）' :
+              (uncert?'待核实·时间占位':'待审核');
+  const ts = c.suggested_timestamp || c.timestamp || '';
+  return `
+  <div style="background:#fff;border:1px solid rgba(15,23,42,0.07);border-radius:12px;padding:12px 14px;${uncert && !isDone ? 'border-color:#f59e0b;background:linear-gradient(180deg,#fffbeb,#ffffff);' : ''}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;${badgeColor}letter-spacing:.03em;">${tag}</span>
+      ${c.extract_error ? `<span style="font-size:10.5px;color:#64748b;">原提取备注：${escapeHtml(c.extract_error)}</span>`:''}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（模型不确定，当前占位，请改）':''}</div>
+        <input data-k="timestamp" value="${escapeAttr(ts)}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">严重度 1~5</div>
+        <input data-k="severity" type="number" min="1" max="5" value="${sev}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
+        <input data-k="people" value="${escapeAttr(c.people||'')}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+      <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
+        <input data-k="tags" value="${escapeAttr(c.tags||'')}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">事实内容</div>
+      <textarea data-k="content" rows="3" ${isDone?'disabled':''} class="field cand-f" style="padding:8px 10px;font-size:12.5px;line-height:1.6;">${escapeHtml(c.content||'')}</textarea>
+    </div>
+    ${!isDone ? `
+    <div style="margin-top:10px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn-ghost" style="padding:7px 11px;font-size:11.5px;color:#94a3b8;" onclick="submitCandidate(${sid},${tIdx},${cIdx},'dismissed',this)">丢弃</button>
+      <button class="btn-primary" style="padding:7px 13px;font-size:11.5px;" onclick="submitCandidate(${sid},${tIdx},${cIdx},'confirmed',this)">确认写入事实库</button>
+    </div>` : `
+    <div style="margin-top:8px;font-size:11px;color:#94a3b8;">处理完成，可在「事实库」页查看对应记录。</div>`}
+  </div>`;
+}
+window.submitCandidate = async function(sid, tIdx, cIdx, status, btn){
+  const card = btn.closest && btn.closest('div[class*="glass"]');
+  // 取 card 的 fields：
+  const root = btn.closest('.reply-card')?.parentElement?.parentElement || btn.parentElement.parentElement.parentElement.parentElement;
+  const cardEl = btn.closest('[data-k]') || btn.parentElement.parentElement; // fallback: walk inputs from the wrapper containing inputs
+  // 更稳妥：按 sid/tIdx/cIdx 重走 DOM 查找对应卡片 input（面板在 reply-grid 下方的第二个父）
+  const panels = document.querySelectorAll('#turnsList > div');
+  const turnEl = panels[tIdx];
+  const inputs = turnEl.querySelectorAll(`.cand-f`);
+  // 对应 candidate card 的 fields：在同一 turn 中所有卡片字段按 5 个一组（ts,sev,people,tags,content）
+  const start = cIdx * 5;
+  const tsInput = inputs[start];
+  const sevInput = inputs[start+1];
+  const peopleInput = inputs[start+2];
+  const tagsInput = inputs[start+3];
+  const contentInput = inputs[start+4];
+  if (!contentInput) { alert('找不到字段'); return; }
+  const payload = {
+    timestamp: tsInput.value,
+    severity: parseInt(sevInput.value,10),
+    people: peopleInput.value,
+    tags: tagsInput.value,
+    content: contentInput.value,
+    status
+  };
+  if (!payload.content.trim() && status==='confirmed') { alert('内容不能为空'); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/sessions/${sid}/turns/${tIdx}/candidates/${cIdx}/confirm`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    openSession(sid);
+  } catch(e){
+    alert('操作失败: '+e.message);
+    btn.disabled = false;
+  }
+};
 window.saveReply = async function(reply){
   const s = state.activeSession;
   const ids = reply.used_event_ids ? reply.used_event_ids.join(',') : '';
@@ -1672,19 +1796,39 @@ window.saveReply = async function(reply){
   })});
   alert('已保存为分析结论，可在校准仪表盘查看与复检');
 };
+window.onPickImage = async function(e){
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 5*1024*1024) { alert('图片需小于 5MB'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.pendingImageData = reader.result; // data:image/xxx;base64,...
+    document.getElementById('imgPreviewImg').src = state.pendingImageData;
+    document.getElementById('imgPreview').style.display = 'inline-block';
+  };
+  reader.readAsDataURL(f);
+};
+window.clearImage = function(){
+  state.pendingImageData = '';
+  document.getElementById('imgPreview').style.display = 'none';
+  document.getElementById('imgPreviewImg').src = '';
+};
 window.sendMessage = async function(){
   const s = state.activeSession; if (!s) return;
   const txt = document.getElementById('msgInput').value.trim();
-  if (!txt) return;
+  const img = state.pendingImageData || '';
+  if (!txt && !img) return;
   const btn = document.getElementById('sendBtn');
-  btn.disabled = true; btn.textContent = '模型并行调用中…';
+  btn.disabled = true; btn.textContent = '分析 & 事实提取并行…';
   document.getElementById('msgHint').textContent = '依模型响应速度，约 30~120 秒';
   try {
     const res = await fetch(`/api/sessions/${s.id}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_content:txt})});
+      body: JSON.stringify({user_content:txt, image_data:img||undefined})});
     const d = await res.json();
     if (!res.ok) throw new Error(d.error||'失败');
     document.getElementById('msgInput').value = '';
+    clearImage();
     openSession(s.id);
   } catch(e){
     alert('发送失败: '+e.message);
