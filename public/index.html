@@ -17,25 +17,18 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* ========== 多层背景：径向渐变 + 细微噪点感 ========== */
+  /* ========== 背景 ========== */
   body {
     min-height: 100vh;
     padding-bottom: env(safe-area-inset-bottom);
     background-color: #f8fafc;
-    background-image:
-      radial-gradient(1200px 600px at 85% -10%, rgba(99,102,241,0.12), transparent 60%),
-      radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,0.10), transparent 55%),
-      radial-gradient(800px 400px at 50% 110%, rgba(236,72,153,0.08), transparent 60%),
-      linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-    background-attachment: fixed;
+    background-image: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   }
 
-  /* ========== 毛玻璃头部 ========== */
+  /* ========== 头部 ========== */
   .app-header {
     position: sticky; top: 0; z-index: 50;
-    backdrop-filter: saturate(180%) blur(24px);
-    -webkit-backdrop-filter: saturate(180%) blur(24px);
-    background: rgba(255,255,255,0.70);
+    background: #fff;
     border-bottom: 1px solid rgba(15,23,42,0.06);
   }
   .header-inner {
@@ -53,21 +46,11 @@
     width: 40px; height: 40px; border-radius: 12px;
     background: linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#ec4899 100%);
     display: flex; align-items: center; justify-content: center;
-    box-shadow:
-      0 4px 12px rgba(99,102,241,0.28),
-      0 1px 3px rgba(15,23,42,0.08),
-      inset 0 1px 0 rgba(255,255,255,0.2);
-    position: relative;
-  }
-  .brand-logo::after {
-    content: ""; position: absolute; inset: 0; border-radius: 12px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.22), transparent 55%);
-    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(99,102,241,0.20);
   }
   .brand-title {
     font-size: 17px; font-weight: 700; letter-spacing: -0.01em;
-    background: linear-gradient(135deg,#0f172a 0%,#334155 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    color: #0f172a;
     line-height: 1.2;
   }
   .brand-sub {
@@ -76,8 +59,7 @@
   }
   .brand-dot {
     width: 5px; height: 5px; border-radius: 50%;
-    background: linear-gradient(135deg,#10b981,#059669);
-    box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+    background: #10b981;
   }
 
   /* ========== 分段控制器 Tab（带滑动指示器） ========== */
@@ -92,11 +74,8 @@
     position: absolute; top: 4px; bottom: 4px; width: calc(20% - 2px);
     background: white;
     border-radius: 10px;
-    box-shadow:
-      0 2px 6px rgba(15,23,42,0.08),
-      0 1px 2px rgba(15,23,42,0.04),
-      0 0 0 1px rgba(15,23,42,0.04);
-    transition: transform .32s cubic-bezier(.4,0,.2,1);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.08);
+    transition: transform .25s ease;
     pointer-events: none;
   }
   .tab-btn {
@@ -110,12 +89,8 @@
   }
   .tab-btn.active { color: #4338ca; }
   .tab-btn svg { width: 15px; height: 15px; stroke-width: 2.2; }
-  .tab-panel { display: none; animation: panelIn .35s cubic-bezier(.4,0,.2,1); }
+  .tab-panel { display: none; }
   .tab-panel.active { display: block; }
-  @keyframes panelIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
 
   /* ========== 主体容器 ========== */
   .main-wrap {
@@ -139,24 +114,12 @@
 
   /* ========== 玻璃卡片 ========== */
   .glass-card {
-    background: rgba(255,255,255,0.82);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.9);
-    box-shadow:
-      0 1px 2px rgba(15,23,42,0.04),
-      0 4px 16px rgba(15,23,42,0.05),
-      0 1px 0 rgba(255,255,255,0.8) inset;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(15,23,42,0.06);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     overflow: hidden;
-    position: relative;
   }
-  .glass-card::before {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(255,255,255,0.5), transparent 40%);
-    pointer-events: none; border-radius: inherit;
-  }
-  .glass-card > * { position: relative; }
 
   /* ========== 列表行 ========== */
   .list-row {
@@ -177,17 +140,8 @@
     width: 36px; height: 36px; flex-shrink: 0;
     border-radius: 10px;
     display: inline-flex; align-items: center; justify-content: center;
-    position: relative;
-    box-shadow:
-      0 2px 6px rgba(15,23,42,0.1),
-      0 1px 0 rgba(255,255,255,0.35) inset;
   }
   .icon-wrap svg { width: 18px; height: 18px; color: white; stroke-width: 2.2; }
-  .icon-wrap::after {
-    content: ""; position: absolute; inset: 0; border-radius: inherit;
-    background: linear-gradient(180deg, rgba(255,255,255,0.28), transparent 55%);
-    pointer-events: none;
-  }
   .g-indigo  { background: linear-gradient(135deg,#6366f1,#4f46e5); }
   .g-amber   { background: linear-gradient(135deg,#f59e0b,#d97706); }
   .g-emerald { background: linear-gradient(135deg,#10b981,#059669); }
@@ -220,7 +174,7 @@
     background: #f8fafc;
     border: 1px solid rgba(15,23,42,0.08);
     border-radius: 11px;
-    transition: all .2s cubic-bezier(.4,0,.2,1);
+    transition: border-color .15s, background .15s;
     color: #0f172a;
     font-family: inherit;
   }
@@ -229,9 +183,7 @@
   .field:focus {
     outline: none; background: #fff;
     border-color: #6366f1;
-    box-shadow:
-      0 0 0 4px rgba(99,102,241,0.12),
-      0 1px 2px rgba(15,23,42,0.04);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.10);
   }
   textarea.field { resize: vertical; min-height: 96px; }
 
@@ -269,28 +221,13 @@
     border: none; cursor: pointer;
     font-weight: 600; font-size: 14px; letter-spacing: -0.005em;
     color: white;
-    background: linear-gradient(135deg,#6366f1 0%,#4f46e5 100%);
-    box-shadow:
-      0 4px 14px rgba(79,70,229,0.28),
-      0 1px 3px rgba(15,23,42,0.08),
-      inset 0 1px 0 rgba(255,255,255,0.2);
-    transition: all .18s cubic-bezier(.4,0,.2,1);
-    position: relative; overflow: hidden;
+    background: #4f46e5;
+    box-shadow: 0 2px 8px rgba(79,70,229,0.20);
+    transition: background .15s, box-shadow .15s;
   }
-  .btn-primary::after {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 55%);
-    pointer-events: none;
-  }
-  .btn-primary:hover {
-    box-shadow:
-      0 6px 20px rgba(79,70,229,0.34),
-      0 1px 3px rgba(15,23,42,0.08),
-      inset 0 1px 0 rgba(255,255,255,0.2);
-    transform: translateY(-1px);
-  }
-  .btn-primary:active { transform: translateY(0); filter: brightness(0.97); }
-  .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; filter: none; }
+  .btn-primary:hover { background: #4338ca; }
+  .btn-primary:active { filter: brightness(0.97); }
+  .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
 
   .btn-ghost {
     padding: 9.5px 14px;
@@ -357,41 +294,30 @@
 
   /* ========== 事件卡片（时间轴卡片） ========== */
   .ev-card {
-    background: rgba(255,255,255,0.88);
-    backdrop-filter: blur(8px);
-    border-radius: 16px;
+    background: #fff;
+    border-radius: 14px;
     padding: 15px 16px;
     margin-bottom: 10px;
-    border: 1px solid rgba(255,255,255,0.9);
-    box-shadow:
-      0 1px 2px rgba(15,23,42,0.04),
-      0 4px 12px rgba(15,23,42,0.05);
+    border: 1px solid rgba(15,23,42,0.06);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     position: relative;
     overflow: hidden;
-    transition: box-shadow .2s, transform .2s;
-  }
-  .ev-card:hover {
-    box-shadow:
-      0 1px 2px rgba(15,23,42,0.05),
-      0 8px 24px rgba(15,23,42,0.07);
   }
   .ev-card.incomplete {
     border-color: rgba(245,158,11,0.35);
-    background:
-      linear-gradient(180deg, rgba(245,158,11,0.05), rgba(255,255,255,0.88) 35%);
+    background: rgba(245,158,11,0.03);
   }
   .ev-card.incomplete::before {
     content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-    background: linear-gradient(180deg,#f59e0b,#d97706);
+    background: #f59e0b;
   }
   .ev-card.warn-calib {
     border-color: rgba(239,68,68,0.30);
-    background:
-      linear-gradient(180deg, rgba(239,68,68,0.04), rgba(255,255,255,0.88) 35%);
+    background: rgba(239,68,68,0.02);
   }
   .ev-card.warn-calib::before {
     content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-    background: linear-gradient(180deg,#ef4444,#e11d48);
+    background: #ef4444;
   }
   .ev-meta {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -482,21 +408,19 @@
     cursor: pointer;
     border: 1.5px solid transparent;
     background: rgba(15,23,42,0.04);
-    transition: all .2s cubic-bezier(.4,0,.2,1);
+    transition: background .15s, border-color .15s;
     text-align: center;
     position: relative;
   }
-  .mode-card:hover { background: rgba(15,23,42,0.06); transform: translateY(-1px); }
+  .mode-card:hover { background: rgba(15,23,42,0.06); }
   .mode-card.selected {
-    background: linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));
-    border-color: rgba(99,102,241,0.45);
-    box-shadow: 0 2px 8px rgba(99,102,241,0.14);
+    background: rgba(99,102,241,0.08);
+    border-color: rgba(99,102,241,0.40);
   }
   .mode-card.selected::after {
     content: ""; position: absolute; top: 6px; right: 6px;
     width: 7px; height: 7px; border-radius: 50%;
     background: #6366f1;
-    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
   }
   .mode-icon {
     width: 30px; height: 30px; margin: 0 auto 6px;
@@ -556,11 +480,11 @@
     .reply-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
   }
   .reply-card {
-    background: rgba(255,255,255,0.92);
+    background: #fff;
     border: 1px solid rgba(15,23,42,0.08);
     border-radius: 14px; padding: 13px;
     position: relative; overflow: hidden;
-    box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 3px 10px rgba(15,23,42,0.04);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
   }
   .reply-card.err {
     background: rgba(239,68,68,0.05);
@@ -568,7 +492,7 @@
   }
   .reply-card.err::before {
     content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-    background: linear-gradient(180deg,#ef4444,#e11d48);
+    background: #ef4444;
   }
   .reply-head {
     display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
@@ -604,8 +528,8 @@
 
   /* 用户消息气泡 */
   .user-bubble {
-    background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.06));
-    border: 1px solid rgba(99,102,241,0.12);
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.10);
     color: #1e293b;
     font-size: 14px; line-height: 1.7;
     padding: 11px 14px;
@@ -626,24 +550,19 @@
     padding: 14px;
     background: white;
     border: 1px solid rgba(15,23,42,0.06);
-    box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 3px 10px rgba(15,23,42,0.04);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     position: relative; overflow: hidden;
   }
   .stat-card.warn {
-    background: linear-gradient(180deg, rgba(245,158,11,0.06), white 60%);
+    background: rgba(245,158,11,0.04);
     border-color: rgba(245,158,11,0.30);
   }
   .stat-icon {
     width: 32px; height: 32px; border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
     margin-bottom: 10px;
-    position: relative;
   }
   .stat-icon svg { width: 16px; height: 16px; color: white; stroke-width: 2.2; }
-  .stat-icon::after {
-    content: ""; position: absolute; inset: 0; border-radius: inherit;
-    background: linear-gradient(180deg, rgba(255,255,255,0.28), transparent 55%);
-  }
   .stat-label { font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 0.02em; }
   .stat-value {
     font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
@@ -700,24 +619,17 @@
   }
   .cal-item::before {
     content: ""; position: absolute; left: 7px; top: 18px; bottom: -10px;
-    width: 2px; background: linear-gradient(180deg, rgba(99,102,241,0.4), rgba(99,102,241,0));
+    width: 2px; background: rgba(99,102,241,0.15);
   }
   .cal-item:last-child::before { display: none; }
   .cal-item::after {
     content: ""; position: absolute; left: 0; top: 12px;
-    width: 16px; height: 16px; border-radius: 50%;
+    width: 14px; height: 14px; border-radius: 50%;
     background: white;
     border: 2.5px solid #6366f1;
-    box-shadow: 0 0 0 4px rgba(99,102,241,0.10);
   }
-  .cal-item.warn::after {
-    border-color: #f59e0b;
-    box-shadow: 0 0 0 4px rgba(245,158,11,0.12);
-  }
-  .cal-item.danger::after {
-    border-color: #ef4444;
-    box-shadow: 0 0 0 4px rgba(239,68,68,0.12);
-  }
+  .cal-item.warn::after { border-color: #f59e0b; }
+  .cal-item.danger::after { border-color: #ef4444; }
 
 </style>
 </head>
@@ -741,7 +653,7 @@
           </div>
         </div>
       </div>
-      <div style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fef3c7,#fde68a);box-shadow:0 2px 6px rgba(245,158,11,0.20),inset 0 1px 0 rgba(255,255,255,0.6);">
+      <div style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fef3c7;">
         <svg viewBox="0 0 24 24" fill="none" stroke="#92400e" style="width:19px;height:19px;stroke-width:2.2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/>
         </svg>
@@ -750,17 +662,17 @@
 
     <div class="tab-bar-wrapper" id="tabBar">
       <div class="tab-indicator" id="tabIndicator" style="transform: translateX(2px);"></div>
-      <button class="tab-btn active" data-tab="record" data-idx="0">
+      <button class="tab-btn active" data-tab="analysis" data-idx="0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/></svg>
+        分析
+      </button>
+      <button class="tab-btn" data-tab="record" data-idx="1">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125"/></svg>
         记录
       </button>
-      <button class="tab-btn" data-tab="timeline" data-idx="1">
+      <button class="tab-btn" data-tab="timeline" data-idx="2">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         回顾
-      </button>
-      <button class="tab-btn" data-tab="analysis" data-idx="2">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/></svg>
-        分析
       </button>
       <button class="tab-btn" data-tab="patterns" data-idx="3">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"/></svg>
@@ -777,8 +689,8 @@
 <!-- =================== MAIN =================== -->
 <main class="main-wrap section-space">
 
-<!-- ===== TAB 1: 记录 ===== -->
-<section id="tab-record" class="tab-panel active section-space">
+<!-- ===== TAB: 记录 ===== -->
+<section id="tab-record" class="tab-panel section-space">
 
   <!-- 快记入口 -->
   <div class="glass-card">
@@ -920,8 +832,8 @@
   <div id="timelineList"></div>
 </section>
 
-<!-- ===== TAB 3: 分析 ===== -->
-<section id="tab-analysis" class="tab-panel section-space">
+<!-- ===== TAB: 分析（首页） ===== -->
+<section id="tab-analysis" class="tab-panel active section-space">
 
   <!-- 模型配置管理 -->
   <details class="glass-card dd-card" open>
@@ -1855,6 +1767,9 @@ fetchMetadata();
 updateSev(1);
 renderModeSelector();
 renderProfilePicker();
+checkLLMStatus();
+loadSessionList();
+loadSavedAnalyses();
 </script>
 </body>
 </html>
