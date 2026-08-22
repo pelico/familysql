@@ -428,9 +428,10 @@ func getSessionHandler(c *gin.Context) {
 func sessionMessagesHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	var payload struct {
-		UserContent string `json:"user_content" binding:"required"`
-		HadImage    bool   `json:"had_image"`
-		ImageData   string `json:"image_data"` // data:image/jpeg;base64,... 前端传入
+		UserContent     string `json:"user_content" binding:"required"`
+		HadImage        bool   `json:"had_image"`
+		ImageData       string `json:"image_data"`          // data:image/jpeg;base64,... 前端传入
+		SkipFactExtract bool   `json:"skip_fact_extract"`   // 前端开关控制是否跳过事实提取
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -531,17 +532,19 @@ func sessionMessagesHandler(c *gin.Context) {
 		}(i, p)
 	}
 
-	// Path B：事实提取
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		cs, e := runFactExtract(payload.UserContent, payload.ImageData, int(factProfileID.Int64))
-		if e != nil {
-			extractErrStr = e.Error()
-			return
-		}
-		candidates = cs
-	}()
+	// Path B：事实提取（可通过前端开关跳过）
+	if !payload.SkipFactExtract {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cs, e := runFactExtract(payload.UserContent, payload.ImageData, int(factProfileID.Int64))
+			if e != nil {
+				extractErrStr = e.Error()
+				return
+			}
+			candidates = cs
+		}()
+	}
 
 	wg.Wait()
 
