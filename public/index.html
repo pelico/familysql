@@ -1001,6 +1001,15 @@
         </div>
         <button class="btn-primary" style="padding:11px 16px;" onclick="createProfile()">保存并激活为并行模型</button>
       </div>
+
+      <!-- 提示词管理：改完即时生效，无需重新部署容器 -->
+      <div style="padding-top:12px;border-top:1px dashed rgba(15,23,42,0.08);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+          <div style="font-size:12.5px;font-weight:700;color:#334155;">提示词管理（改完即时生效，无需重新部署）</div>
+          <button style="padding:6px 12px;font-size:11px;border:1px solid rgba(15,23,42,0.12);border-radius:7px;background:#fff;color:#475569;cursor:pointer;" onclick="renderModePrompts()">刷新</button>
+        </div>
+        <div id="modePromptsList"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2704,6 +2713,64 @@ window.recheckToAnalysis = function(aid){
 window.openSettings = function(){
   document.getElementById('settingsModal').classList.add('open');
   renderProfiles();
+  renderModePrompts();
+};
+// ---- 提示词管理 ----
+window.renderModePrompts = async function(){
+  const list = document.getElementById('modePromptsList');
+  if (!list) return;
+  list.innerHTML = '<div style="color:#94a3b8;font-size:11.5px;padding:8px 0;">加载中…</div>';
+  try {
+    const data = await fetch('/api/mode-prompts').then(r=>r.json());
+    list.innerHTML = data.map(m=>{
+      const title = (modeInfo[m.mode]||{}).title || m.mode;
+      const tag = m.is_default
+        ? '<span style="background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;">默认</span>'
+        : '<span style="background:#dbeafe;color:#1e40af;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;">已自定义</span>';
+      return `
+        <div style="margin-bottom:11px;padding:11px 12px;border:1px solid rgba(15,23,42,0.08);border-radius:10px;background:#fff;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
+            <div style="font-size:12px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:7px;">${escapeHtml(title)} ${tag}</div>
+          </div>
+          <textarea class="field" data-mp="${m.mode}" style="width:100%;min-height:130px;padding:9px 11px;font-size:11.5px;line-height:1.6;font-family:ui-monospace,monospace;box-sizing:border-box;">${escapeHtml(m.prompt)}</textarea>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:7px;">
+            <button style="padding:6px 12px;font-size:11px;border:1px solid rgba(15,23,42,0.12);border-radius:7px;background:#fff;color:#475569;cursor:pointer;" onclick="restoreModePrompt('${m.mode}',this)" ${m.is_default?'disabled':''}>恢复默认</button>
+            <button class="btn-primary" style="padding:6px 14px;font-size:11px;" onclick="saveModePrompt('${m.mode}',this)">保存</button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e){
+    list.innerHTML = '<div style="color:#dc2626;font-size:11.5px;padding:8px 0;">加载失败: '+escapeHtml(e.message)+'</div>';
+  }
+};
+window.saveModePrompt = async function(mode, btn){
+  const ta = document.querySelector('textarea[data-mp="'+mode+'"]');
+  if (!ta) { alert('找不到输入框'); return; }
+  const prompt = ta.value;
+  if (!prompt.trim()) { alert('提示词不能为空'); return; }
+  btn.disabled = true; const old = btn.textContent; btn.textContent='保存中…';
+  try {
+    const res = await fetch('/api/mode-prompts/'+mode,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_text:prompt})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    btn.textContent='已保存 ✓';
+    setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },1500);
+    renderModePrompts();
+  } catch(e){
+    alert('保存失败: '+e.message);
+    btn.textContent=old; btn.disabled=false;
+  }
+};
+window.restoreModePrompt = async function(mode, btn){
+  if (!confirm('确定恢复该模式的默认提示词？当前自定义将被删除。')) return;
+  btn.disabled = true;
+  try {
+    await fetch('/api/mode-prompts/'+mode,{method:'DELETE'});
+    renderModePrompts();
+  } catch(e){
+    alert('恢复失败: '+e.message);
+    btn.disabled=false;
+  }
 };
 window.closeSettings = function(){
   document.getElementById('settingsModal').classList.remove('open');

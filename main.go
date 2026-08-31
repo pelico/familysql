@@ -79,6 +79,10 @@ func initDB() {
 		is_active INTEGER DEFAULT 0,
 		created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE TABLE IF NOT EXISTS mode_prompts (
+		mode TEXT PRIMARY KEY, prompt_text TEXT NOT NULL,
+		updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+	);
 	CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
 		INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
 	END;
@@ -639,6 +643,61 @@ func main() {
 			return
 		}
 		c.JSON(200, gin.H{"id": existingID, "created": false, "observation_count": obs + 1})
+	})
+
+	// =====================================================
+	// mode 提示词管理：允许在设置里覆盖代码内置的默认 prompt，改完不用重新部署
+	// =====================================================
+	r.GET("/api/mode-prompts", func(c *gin.Context) {
+		modes := []string{"pattern_query", "contradiction_check", "hypothesis_only", "review", "response_draft"}
+		var res []map[string]interface{}
+		for _, m := range modes {
+			var custom, updatedAt string
+			hasCustom := false
+			err := db.QueryRow("SELECT prompt_text, updated_at FROM mode_prompts WHERE mode=?", m).Scan(&custom, &updatedAt)
+			if err == nil {
+				hasCustom = true
+			}
+			prompt := custom
+			if !hasCustom || strings.TrimSpace(custom) == "" {
+				prompt = modeSystemPrompt(m)
+			}
+			res = append(res, map[string]interface{}{
+				"mode": m, "prompt": prompt, "is_default": !hasCustom, "updated_at": updatedAt,
+			})
+		}
+		c.JSON(200, res)
+	})
+	r.PUT("/api/mode-prompts/:mode", func(c *gin.Context) {
+		mode := c.Param("mode")
+		if !validModes[mode] {
+			c.JSON(400, gin.H{"error": "未知 mode"})
+			return
+		}
+		var body struct {
+			PromptText string `json:"prompt_text" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err := db.Exec("INSERT OR REPLACE INTO mode_prompts (mode, prompt_text, updated_at) VALUES (?,?,?)",
+			mode, body.PromptText, now)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"ok": true, "updated_at": now})
+	})
+	r.DELETE("/api/mode-prompts/:mode", func(c *gin.Context) {
+		mode := c.Param("mode")
+		if !validModes[mode] {
+			c.JSON(400, gin.H{"error": "未知 mode"})
+			return
+		}
+		db.Exec("DELETE FROM mode_prompts WHERE mode=?", mode)
+		c.JSON(200, gin.H{"ok": true, "restored_default": true})
 	})
 
 	_ = json.Marshal // 防止未使用 import 告警（后续 handlers_analyze.go 里要用，但这里也 import 了）

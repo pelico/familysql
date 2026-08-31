@@ -145,6 +145,17 @@ func modeSystemPrompt(mode string) string {
 	}
 }
 
+// getEffectiveModePrompt 取生效的 mode 提示词：优先用 mode_prompts 表里用户自定义的，
+// 没有记录则回退到 modeSystemPrompt（代码内置默认）。供 sessionMessagesHandler 拼 system msg 用。
+func getEffectiveModePrompt(mode string) string {
+	var custom string
+	err := db.QueryRow("SELECT prompt_text FROM mode_prompts WHERE mode=?", mode).Scan(&custom)
+	if err == nil && strings.TrimSpace(custom) != "" {
+		return custom
+	}
+	return modeSystemPrompt(mode)
+}
+
 // ===== 事实提取专用 prompt（完全不做推断，只做"转录+结构化"，与分析prompt隔离）
 const factExtractSystemPrompt = `你的任务是事实提取员。只做两件事：
 1. 从用户输入/图片中提取可客观观察的事件；
@@ -529,7 +540,7 @@ func sessionMessagesHandler(c *gin.Context) {
 	// 2) 拼 facts_block + 系统 prompt + 历史对话（仅 user / assistant 最近 6 轮，避免超长）
 	factsBlock := buildFactsBlock(events)
 	systemMsg := APIMessage{Role: "system",
-		Content: modeSystemPrompt(modeV) + "\n\n以下是当前可参考的事实集合（按时间倒序）：\n" + factsBlock}
+		Content: getEffectiveModePrompt(modeV) + "\n\n以下是当前可参考的事实集合（按时间倒序）：\n" + factsBlock}
 	// 采样偏差检测：若事实集合几乎全是高严重度冲突，强制拼元认知警示到 system prompt
 	systemMsg.Content += samplingBiasNotice(events)
 	// response_draft 模式：额外拼该人物的历史互动模式样本（供 Block B 复盘参考）
