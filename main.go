@@ -197,11 +197,20 @@ func main() {
 		var res []map[string]interface{}
 		for rows.Next() {
 			var id, sev int
-			var ts, p, t, con, stat, createdAt, val string
-			rows.Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat, &createdAt)
+			var ts, createdAt string
+			var pP, tP, valP, conP, statP *string
+			if err := rows.Scan(&id, &ts, &pP, &tP, &sev, &valP, &conP, &statP, &createdAt); err != nil {
+				continue
+			}
+			pp, tp, val, con, st := "", "", "", "", ""
+			if pP != nil { pp = *pP }
+			if tP != nil { tp = *tP }
+			if valP != nil { val = *valP }
+			if conP != nil { con = *conP }
+			if statP != nil { st = *statP }
 			res = append(res, map[string]interface{}{
-				"id": id, "timestamp": ts, "people": p, "tags": t,
-				"severity_self": sev, "valence": val, "content": con, "status": stat, "created_at": createdAt,
+				"id": id, "timestamp": ts, "people": pp, "tags": tp,
+				"severity_self": sev, "valence": val, "content": con, "status": st, "created_at": createdAt,
 			})
 		}
 		c.JSON(200, res)
@@ -224,11 +233,20 @@ func main() {
 		var res []map[string]interface{}
 		for rows.Next() {
 			var id, sev int
-			var ts, p, t, con, stat, val string
-			rows.Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat)
+			var ts string
+			var pP, tP, valP, conP, statP *string
+			if err := rows.Scan(&id, &ts, &pP, &tP, &sev, &valP, &conP, &statP); err != nil {
+				continue
+			}
+			pp, tp, val, con, st := "", "", "", "", ""
+			if pP != nil { pp = *pP }
+			if tP != nil { tp = *tP }
+			if valP != nil { val = *valP }
+			if conP != nil { con = *conP }
+			if statP != nil { st = *statP }
 			res = append(res, map[string]interface{}{
-				"id": id, "timestamp": ts, "people": p, "tags": t,
-				"severity_self": sev, "valence": val, "content": con, "status": stat,
+				"id": id, "timestamp": ts, "people": pp, "tags": tp,
+				"severity_self": sev, "valence": val, "content": con, "status": st,
 			})
 		}
 		c.JSON(200, res)
@@ -268,17 +286,24 @@ func main() {
 	// 事件单条查询
 	r.GET("/api/events/:id", func(c *gin.Context) {
 		var id, sev int
-		var ts, p, t, con, stat, createdAt, val string
+		var ts, createdAt string
+		var pP, tP, valP, conP, statP *string
 		err := db.QueryRow(
 			"SELECT id, timestamp, people, tags, severity_self, valence, content, status, created_at FROM events WHERE id=?", c.Param("id"),
-		).Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat, &createdAt)
+		).Scan(&id, &ts, &pP, &tP, &sev, &valP, &conP, &statP, &createdAt)
 		if err != nil {
 			c.JSON(404, gin.H{"error": "事件不存在"})
 			return
 		}
+		pp, tp, val, con, st := "", "", "", "", ""
+		if pP != nil { pp = *pP }
+		if tP != nil { tp = *tP }
+		if valP != nil { val = *valP }
+		if conP != nil { con = *conP }
+		if statP != nil { st = *statP }
 		c.JSON(200, gin.H{
-			"id": id, "timestamp": ts, "people": p, "tags": t,
-			"severity_self": sev, "valence": val, "content": con, "status": stat, "created_at": createdAt,
+			"id": id, "timestamp": ts, "people": pp, "tags": tp,
+			"severity_self": sev, "valence": val, "content": con, "status": st, "created_at": createdAt,
 		})
 	})
 
