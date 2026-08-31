@@ -1417,12 +1417,14 @@ const modeInfo = {
   contradiction_check: { title: '矛盾检测',     desc: '针对一个假设，主动列支持+矛盾的事实，不替你下结论。适合验证直觉。' },
   hypothesis_only:     { title: '假设构建',     desc: '允许综合推断，但强制假设句式+置信度标注+双重解释+event引用。仅在确实需要理脉络时使用。' },
   review:              { title: '复检校准',     desc: '拿此前保存的某条分析对照新事实，检验是否被印证 —— 校准你对 AI 分析的信任程度。' },
+  response_draft:      { title: '回复草拟',     desc: '针对对方一条消息生成"这次怎么回"。当场回复候选(A)默认展开，复盘参考(B)折叠。用前先在会话设人物限定，复盘参考依赖历史互动样本。' },
 };
 const modeIcons = {
   pattern_query:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>',
   contradiction_check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>',
   hypothesis_only:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>',
   review:              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
+  response_draft:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3.75h9m-9 3.75h5m-7.5-9.75h15a1.5 1.5 0 011.5 1.5v9.75a1.5 1.5 0 01-1.5 1.5h-6.75l-3.75 3v-3H4.5a1.5 1.5 0 01-1.5-1.5V6.75a1.5 1.5 0 011.5-1.5z"/></svg>',
 };
 
 // =====================================================
@@ -2212,16 +2214,118 @@ function renderActiveSession(){
               ${r.used_event_ids && r.used_event_ids.length ? `<span class="reply-ref">引用 ${r.used_event_ids.length}</span>`:''}
             </div>
             ${r.error ? `<div class="reply-err">❌ ${escapeHtml(r.error)}</div>`
-                   : `<div class="reply-body">${escapeHtml(r.reply)}</div>`}
+                   : (s.mode === 'response_draft'
+                       ? renderResponseDraftBlocks(r.reply)
+                       : `<div class="reply-body">${escapeHtml(r.reply)}</div>`)}
             ${r.reply ? `<div class="reply-save"><button onclick='saveReply(${JSON.stringify(r).replace(/'/g,"&#39;")})'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>保存为分析结论</button></div>`:''}
           </div>`;
         }).join('')}
       </div>
       ${renderCandidatesPanel(t.candidates||[], s.id, tIdx)}
+      ${s.mode === 'response_draft' ? renderResponseDraftResultForm(s, tIdx, t) : ''}
     `;
     box.appendChild(wrap);
   });
 }
+
+// response_draft 模式：把 AI 回复按 ## 当场回复候选 / ## 复盘参考 split 成两块，
+// Block A 默认展开（当场要用），Block B 用 <details> 默认折叠（复盘用，避免情绪紧张时干扰）。
+function renderResponseDraftBlocks(reply){
+  if (!reply) return `<div class="reply-body"></div>`;
+  const aTitle = '## 当场回复候选';
+  const bTitle = '## 复盘参考';
+  const aIdx = reply.indexOf(aTitle);
+  const bIdx = reply.indexOf(bTitle);
+  let blockA = '', blockB = '';
+  if (aIdx >= 0 && bIdx > aIdx) {
+    blockA = reply.slice(aIdx + aTitle.length, bIdx).trim();
+    blockB = reply.slice(bIdx + bTitle.length).trim();
+  } else if (aIdx >= 0) {
+    blockA = reply.slice(aIdx + aTitle.length).trim();
+  } else {
+    blockA = reply.trim(); // 模型没按格式，兜底整段显示
+  }
+  return `
+    <div class="reply-body" style="padding:0;">
+      <div style="padding:12px 14px;">
+        <div style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:.04em;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+          <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#10b981,#059669);"></span>
+          当场回复候选（可直接发，选一版或自改）
+        </div>
+        <div style="white-space:pre-wrap;font-size:13px;line-height:1.7;color:#0f172a;">${escapeHtml(blockA)}</div>
+      </div>
+      <details style="border-top:1px solid rgba(15,23,42,0.07);">
+        <summary style="padding:11px 14px;font-size:11px;font-weight:700;color:#64748b;cursor:pointer;letter-spacing:.04em;display:flex;align-items:center;gap:6px;list-style:none;">
+          <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#a78bfa,#7c3aed);"></span>
+          复盘参考（不建议直接发，点击展开）
+        </summary>
+        <div style="padding:4px 14px 14px;white-space:pre-wrap;font-size:12.5px;line-height:1.7;color:#334155;">${escapeHtml(blockB)}</div>
+      </details>
+    </div>`;
+}
+
+// response_draft 模式：turn 下方挂「记录这次结果」小表单，事后回填 response_tried/outcome。
+// 对方实际反应往往几小时/几天后才出现，用户回会话还能补（表单挂在 turn 上，不随会话关闭消失）。
+function renderResponseDraftResultForm(s, tIdx, t){
+  const person = s.filter_people || '';
+  const defaultTrigger = (t.user_content||'').slice(0, 40);
+  return `
+    <div style="margin-top:14px;padding:12px 14px;border:1px solid rgba(15,23,42,0.08);border-radius:12px;background:rgba(248,250,252,0.6);">
+      <div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:9px;display:flex;align-items:center;gap:6px;">
+        <span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(180deg,#f59e0b,#d97706);"></span>
+        记录这次结果（事后回填，用于积累互动模式样本）
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin-bottom:8px;">
+        <div>
+          <div style="font-size:10.5px;color:#64748b;margin-bottom:3px;">人物${person?'（来自会话限定）':'（需填）'}</div>
+          <input class="field" data-rd="person" value="${escapeAttr(person)}" style="padding:7px 10px;font-size:12.5px;">
+        </div>
+        <div>
+          <div style="font-size:10.5px;color:#64748b;margin-bottom:3px;">触发情境（trigger_context）</div>
+          <input class="field" data-rd="trigger" value="${escapeAttr(defaultTrigger)}" style="padding:7px 10px;font-size:12.5px;">
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <div style="font-size:10.5px;color:#64748b;margin-bottom:3px;">你发出去的回复（response_tried）</div>
+        <textarea class="field" data-rd="response" rows="2" style="padding:8px 10px;font-size:12.5px;line-height:1.6;box-sizing:border-box;" placeholder="从上面 Block A 选/改后实际发出的内容"></textarea>
+      </div>
+      <div style="margin-bottom:9px;">
+        <div style="font-size:10.5px;color:#64748b;margin-bottom:3px;">对方实际反应（outcome）</div>
+        <textarea class="field" data-rd="outcome" rows="2" style="padding:8px 10px;font-size:12.5px;line-height:1.6;box-sizing:border-box;" placeholder="几小时/几天后对方怎么回应的"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn-primary" style="padding:8px 14px;font-size:11.5px;" onclick="submitDraftResult(${s.id},${tIdx},this)">提交回填</button>
+      </div>
+    </div>`;
+}
+
+// 提交 response_draft 的事后回填：按 person+trigger_context upsert 到 interaction_patterns。
+// 字段按 data-rd 属性在 turn 范围内查找，顺序 person/trigger/response/outcome。
+window.submitDraftResult = async function(sid, tIdx, btn){
+  const panels = document.querySelectorAll('#turnsList > div');
+  const turnEl = panels[tIdx];
+  if (!turnEl) { alert('找不到 turn'); return; }
+  const fields = turnEl.querySelectorAll('[data-rd]');
+  const person = fields[0] ? fields[0].value : '';
+  const trigger = fields[1] ? fields[1].value : '';
+  const response = fields[2] ? fields[2].value : '';
+  const outcome = fields[3] ? fields[3].value : '';
+  if (!person.trim() || !trigger.trim()) { alert('人物和触发情境必填'); return; }
+  if (!response.trim() && !outcome.trim()) { alert('回复和反应至少填一个'); return; }
+  btn.disabled = true; btn.textContent = '提交中…';
+  try {
+    const res = await fetch('/api/interaction_patterns/upsert',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({person, trigger_context:trigger, response_tried:response, outcome})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    btn.textContent = '已记录 ✓（累计 ' + (d.observation_count||1) + ' 次）';
+    btn.disabled = true;
+  } catch(e){
+    alert('回填失败: '+e.message);
+    btn.disabled = false; btn.textContent = '提交回填';
+  }
+};
+
 // 候选事实审核面板：每张卡片可编辑字段 → 确认写入 events 或丢弃
 function renderCandidatesPanel(cs, sid, tIdx){
   if (!cs || !cs.length) {

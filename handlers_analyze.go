@@ -87,6 +87,7 @@ var validModes = map[string]bool{
 	"contradiction_check": true,
 	"hypothesis_only":     true,
 	"review":              true,
+	"response_draft":      true,
 }
 
 // modeSystemPrompt 按 mode 给出系统提示（prompt_version = "1.0" 固定版本，后续升级可记录）
@@ -118,6 +119,27 @@ func modeSystemPrompt(mode string) string {
 (6) 输出格式：每条结论一段，不分正向/反向小标题，最后单独一句"不确定性："收尾。`
 	case "review":
 		return `你是复检助理。对照新事实，检验此前某条分析结论是否仍成立：分别列出"被印证的部分"、"被削弱的部分"、"建议修正方向"，每条引用 event_id。`
+	case "response_draft":
+		return `你是"当场回复草拟助手"。用户会提供对方发来的一条消息（以及用户自己写的回复草稿）。你的任务是帮用户想"这次该怎么回"，输出严格分成两个物理分离的部分，用固定标题分隔，绝对不能合并成一段话。
+
+## 当场回复候选
+给出 2-3 个版本的回复，供用户直接选用（可自行修改后发送）。每个版本：
+- 只做情绪确认 + 延后表态，例如"我听到你了，这个我先放一放，晚点我们好好说"
+- 绝对禁止：给建议、讲道理、辩解、引用历史事件、提解决方案、教育对方
+- 每版不超过两句
+- 用途是当场发出去降温，不是解决问题
+
+## 复盘参考
+仅供用户本人参考，事后或当面沟通时用，绝不直接转发给对方。包含：
+- 该类矛盾的历史样本情况：基于下方提供的"历史互动模式样本"，说明该类矛盾出现次数；样本不足 3 次要显式标注"样本不足，谨慎参考"
+- 过去尝试过的应对方式及结果：列出历史 response_tried / outcome；若历史记录为空，明确提示"暂无结果记录，建议本次事后补记"
+- 谈判方向：关于具体分歧点的可能方向，每条标注引用的 event_id，并声明"基于单方面数据推断，非对方真实立场"
+
+硬性约束：
+- 两个标题必须严格出现且顺序固定，Block A 内出现任何解决方案倾向（建议、说理、该怎么做）都算不合格输出
+- Block A 和 Block B 在使用时机上强制分开：A 是当场发的，B 是事后/当面才用的
+- Block B 不得替用户下"关系整体如何"的判断（那是别的模式的事），只针对这次分歧点
+- 若未提供历史互动模式样本，Block B 仍要输出，但明确写"暂无该人物历史样本，本次为首次记录，建议事后补记结果"`
 	default:
 		return `你是客观的事实整理助理。只做事实汇总，不下定性结论。每条结论标注对应 event_id。`
 	}
@@ -510,6 +532,10 @@ func sessionMessagesHandler(c *gin.Context) {
 		Content: modeSystemPrompt(modeV) + "\n\n以下是当前可参考的事实集合（按时间倒序）：\n" + factsBlock}
 	// 采样偏差检测：若事实集合几乎全是高严重度冲突，强制拼元认知警示到 system prompt
 	systemMsg.Content += samplingBiasNotice(events)
+	// response_draft 模式：额外拼该人物的历史互动模式样本（供 Block B 复盘参考）
+	if modeV == "response_draft" {
+		systemMsg.Content += buildPatternsContext(fpV)
+	}
 
 	historyMsgs := buildHistoryMessages(turns, 6, modeV)
 
@@ -719,6 +745,67 @@ func samplingBiasNotice(events []EventRow) string {
 				"不得仅凭冲突样本下整体性结论。】", len(events), high)
 	}
 	return ""
+}
+
+// buildPatternsContext 读 interaction_patterns 表，按 person 匹配历史互动模式样本，
+// 拼成一段 context 供 response_draft 模式的 Block B（复盘参考）使用。
+// 带 low_sample 标注（observation_count<3）。person 为空则返回空串。
+func buildPatternsContext(person string) string {
+	if strings.TrimSpace(person) == "" {
+		return ""
+	}
+	rows, err := db.Query(
+		"SELECT id, person, trigger_context, observed_pattern, ref_event_ids, response_tried, outcome, observation_count "+
+			"FROM interaction_patterns WHERE person = ? ORDER BY datetime(updated_at) DESC LIMIT 10", person)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var sb strings.Builder
+	cnt := 0
+	for rows.Next() {
+		var id, obs int
+		var person2, trigger, observed string
+		var refP, respP, outP *string
+		if err := rows.Scan(&id, &person2, &trigger, &observed, &refP, &respP, &outP, &obs); err != nil {
+			continue
+		}
+		refs, responded, outcome := "", "", ""
+		if refP != nil {
+			refs = *refP
+		}
+		if respP != nil {
+			responded = *respP
+		}
+		if outP != nil {
+			outcome = *outP
+		}
+		cnt++
+		if cnt == 1 {
+			sb.WriteString("\n\n【该人物的历史互动模式样本（供「复盘参考」使用）】\n")
+		}
+		flag := ""
+		if obs < 3 {
+			flag = "  [样本不足，谨慎参考]"
+		}
+		fmt.Fprintf(&sb, "- trigger=%s  已记录 %d 次%s\n", trigger, obs, flag)
+		if strings.TrimSpace(observed) != "" {
+			fmt.Fprintf(&sb, "  观察到的模式: %s\n", observed)
+		}
+		if strings.TrimSpace(responded) != "" {
+			fmt.Fprintf(&sb, "  过去尝试: %s\n", responded)
+		}
+		if strings.TrimSpace(outcome) != "" {
+			fmt.Fprintf(&sb, "  结果: %s\n", outcome)
+		}
+		if strings.TrimSpace(refs) != "" {
+			fmt.Fprintf(&sb, "  ref_event_ids: %s\n", refs)
+		}
+	}
+	if cnt == 0 {
+		return "\n\n【该人物的历史互动模式样本】暂无记录（本次为首次记录，建议事后补记 response_tried 与 outcome）"
+	}
+	return sb.String()
 }
 
 func emptyIf(s, def string) string {

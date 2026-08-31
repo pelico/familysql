@@ -558,6 +558,89 @@ func main() {
 		c.JSON(201, gin.H{"id": id})
 	})
 
+	// interaction_patterns upsert：按 person+trigger_context 匹配，已存在则 observation_count+1
+	// 并追加 response_tried/outcome（用 " | " 分隔，保留历次记录），不存在则新建。
+	// 供 response_draft 模式事后回填"发出去的回复+对方实际反应"用。
+	r.POST("/api/interaction_patterns/upsert", func(c *gin.Context) {
+		var body struct {
+			Person        string `json:"person" binding:"required"`
+			Trigger       string `json:"trigger_context" binding:"required"`
+			Observed      string `json:"observed_pattern"`
+			RefEventIDs   string `json:"ref_event_ids"`
+			ResponseTried string `json:"response_tried"`
+			Outcome       string `json:"outcome"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		// 查 person+trigger_context 是否已有记录
+		var existingID, obs int
+		var existingObs, existingRefs, existingResp, existingOut string
+		err := db.QueryRow(
+			"SELECT id, observed_pattern, ref_event_ids, response_tried, outcome, observation_count "+
+				"FROM interaction_patterns WHERE person=? AND trigger_context=? ORDER BY updated_at DESC LIMIT 1",
+			body.Person, body.Trigger,
+		).Scan(&existingID, &existingObs, &existingRefs, &existingResp, &existingOut, &obs)
+		if err == sql.ErrNoRows {
+			// 新建
+			res, e := db.Exec(
+				`INSERT INTO interaction_patterns (person, trigger_context, observed_pattern, ref_event_ids, response_tried, outcome, observation_count, created_at, updated_at) VALUES (?,?,?,?,?,?,?,1,?,?)`,
+				body.Person, body.Trigger, nullStr(body.Observed), nullStr(body.RefEventIDs), nullStr(body.ResponseTried), nullStr(body.Outcome), now, now,
+			)
+			if e != nil {
+				c.JSON(500, gin.H{"error": e.Error()})
+				return
+			}
+			id, _ := res.LastInsertId()
+			c.JSON(201, gin.H{"id": id, "created": true, "observation_count": 1})
+			return
+		}
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		// 已存在：observation_count+1，response_tried/outcome/ref_event_ids 追加，observed_pattern 有新值则覆盖
+		newObs := existingObs
+		if strings.TrimSpace(body.Observed) != "" {
+			newObs = body.Observed
+		}
+		newResp := existingResp
+		if strings.TrimSpace(body.ResponseTried) != "" {
+			if existingResp != "" {
+				newResp = existingResp + " | " + body.ResponseTried
+			} else {
+				newResp = body.ResponseTried
+			}
+		}
+		newOut := existingOut
+		if strings.TrimSpace(body.Outcome) != "" {
+			if existingOut != "" {
+				newOut = existingOut + " | " + body.Outcome
+			} else {
+				newOut = body.Outcome
+			}
+		}
+		newRefs := existingRefs
+		if strings.TrimSpace(body.RefEventIDs) != "" {
+			if existingRefs != "" {
+				newRefs = existingRefs + "," + body.RefEventIDs
+			} else {
+				newRefs = body.RefEventIDs
+			}
+		}
+		_, e := db.Exec(
+			"UPDATE interaction_patterns SET observed_pattern=?, ref_event_ids=?, response_tried=?, outcome=?, observation_count=?, updated_at=? WHERE id=?",
+			nullStr(newObs), nullStr(newRefs), nullStr(newResp), nullStr(newOut), obs+1, now, existingID,
+		)
+		if e != nil {
+			c.JSON(500, gin.H{"error": e.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"id": existingID, "created": false, "observation_count": obs + 1})
+	})
+
 	_ = json.Marshal // 防止未使用 import 告警（后续 handlers_analyze.go 里要用，但这里也 import 了）
 	_ = strconv.Itoa // 同上
 	r.Run(":18080")
