@@ -45,8 +45,8 @@ func initDB() {
 	// W: SQLite 用 write-ahead log 配合 .backup 在线导出最稳妥
 	schema := `
 	CREATE TABLE IF NOT EXISTS events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, people TEXT, tags TEXT, 
-		severity_self INTEGER, content TEXT NOT NULL, status TEXT DEFAULT 'raw', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+		id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, people TEXT, tags TEXT,
+		severity_self INTEGER, valence TEXT, content TEXT NOT NULL, status TEXT DEFAULT 'raw', created_at TEXT DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram');
 	CREATE TABLE IF NOT EXISTS event_links (
@@ -111,6 +111,8 @@ func initDB() {
 	db.Exec(`ALTER TABLE sessions ADD COLUMN profile_ids TEXT`)
 	// sessions 表：fact_profile_id 指定事实提取专用模型（空=用第一个活跃模型）
 	db.Exec(`ALTER TABLE sessions ADD COLUMN fact_profile_id INTEGER`)
+	// events 表：valence 事件性质（conflict/neutral/positive），用于检测采样偏差
+	db.Exec(`ALTER TABLE events ADD COLUMN valence TEXT`)
 }
 
 func main() {
@@ -130,6 +132,7 @@ func main() {
 			Tags      string `json:"tags"`
 			Content   string `json:"content" binding:"required"`
 			Severity  int    `json:"severity_self"`
+			Valence   string `json:"valence"`
 			Status    string `json:"status"`
 		}
 		if err := c.ShouldBindJSON(&e); err != nil {
@@ -146,8 +149,8 @@ func main() {
 			status = "raw"
 		}
 		res, err := db.Exec(
-			"INSERT INTO events (timestamp, people, tags, severity_self, content, status) VALUES (?,?,?,?,?,?)",
-			t.UTC().Format(time.RFC3339), e.People, e.Tags, e.Severity, e.Content, status,
+			"INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status) VALUES (?,?,?,?,?,?,?)",
+			t.UTC().Format(time.RFC3339), e.People, e.Tags, e.Severity, e.Valence, e.Content, status,
 		)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -158,7 +161,7 @@ func main() {
 	})
 
 	r.GET("/api/events", func(c *gin.Context) {
-		query := "SELECT id, timestamp, people, tags, severity_self, content, status, created_at FROM events WHERE 1=1"
+		query := "SELECT id, timestamp, people, tags, severity_self, valence, content, status, created_at FROM events WHERE 1=1"
 		var args []interface{}
 		if t := c.Query("tags"); t != "" {
 			query += " AND tags LIKE ?"
@@ -176,6 +179,10 @@ func main() {
 			query += " AND severity_self <= ?"
 			args = append(args, sMax)
 		}
+		if v := c.Query("valence"); v != "" {
+			query += " AND valence = ?"
+			args = append(args, v)
+		}
 		query += " ORDER BY datetime(timestamp) DESC"
 		rows, err := db.Query(query, args...)
 		if err != nil {
@@ -186,11 +193,11 @@ func main() {
 		var res []map[string]interface{}
 		for rows.Next() {
 			var id, sev int
-			var ts, p, t, con, stat, createdAt string
-			rows.Scan(&id, &ts, &p, &t, &sev, &con, &stat, &createdAt)
+			var ts, p, t, con, stat, createdAt, val string
+			rows.Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat, &createdAt)
 			res = append(res, map[string]interface{}{
 				"id": id, "timestamp": ts, "people": p, "tags": t,
-				"severity_self": sev, "content": con, "status": stat, "created_at": createdAt,
+				"severity_self": sev, "valence": val, "content": con, "status": stat, "created_at": createdAt,
 			})
 		}
 		c.JSON(200, res)
@@ -203,7 +210,7 @@ func main() {
 			return
 		}
 		rows, err := db.Query(
-			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.content, events.status "+
+			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content, events.status "+
 				"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 200", q)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -213,11 +220,11 @@ func main() {
 		var res []map[string]interface{}
 		for rows.Next() {
 			var id, sev int
-			var ts, p, t, con, stat string
-			rows.Scan(&id, &ts, &p, &t, &sev, &con, &stat)
+			var ts, p, t, con, stat, val string
+			rows.Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat)
 			res = append(res, map[string]interface{}{
 				"id": id, "timestamp": ts, "people": p, "tags": t,
-				"severity_self": sev, "content": con, "status": stat,
+				"severity_self": sev, "valence": val, "content": con, "status": stat,
 			})
 		}
 		c.JSON(200, res)
@@ -257,17 +264,17 @@ func main() {
 	// 事件单条查询
 	r.GET("/api/events/:id", func(c *gin.Context) {
 		var id, sev int
-		var ts, p, t, con, stat, createdAt string
+		var ts, p, t, con, stat, createdAt, val string
 		err := db.QueryRow(
-			"SELECT id, timestamp, people, tags, severity_self, content, status, created_at FROM events WHERE id=?", c.Param("id"),
-		).Scan(&id, &ts, &p, &t, &sev, &con, &stat, &createdAt)
+			"SELECT id, timestamp, people, tags, severity_self, valence, content, status, created_at FROM events WHERE id=?", c.Param("id"),
+		).Scan(&id, &ts, &p, &t, &sev, &val, &con, &stat, &createdAt)
 		if err != nil {
 			c.JSON(404, gin.H{"error": "事件不存在"})
 			return
 		}
 		c.JSON(200, gin.H{
 			"id": id, "timestamp": ts, "people": p, "tags": t,
-			"severity_self": sev, "content": con, "status": stat, "created_at": createdAt,
+			"severity_self": sev, "valence": val, "content": con, "status": stat, "created_at": createdAt,
 		})
 	})
 

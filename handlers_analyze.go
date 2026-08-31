@@ -20,6 +20,7 @@ type EventRow struct {
 	People    string
 	Tags      string
 	Severity  int
+	Valence   string // "conflict" / "neutral" / "positive" / "" 未分类
 	Content   string
 }
 
@@ -30,6 +31,7 @@ type FactCandidate struct {
 	People             string `json:"people"`
 	Tags               string `json:"tags"`
 	Severity           *int   `json:"severity,omitempty"`
+	Valence            string `json:"valence,omitempty"` // "conflict"/"neutral"/"positive"/"" AI建议，用户确认
 	Content            string `json:"content"`
 	Status             string `json:"status"` // "pending" / "confirmed" / "dismissed"
 	TimestampUncertain bool   `json:"timestamp_uncertain,omitempty"`
@@ -136,6 +138,11 @@ const factExtractSystemPrompt = `你的任务是事实提取员。只做两件�
 - 人物名只能写原文/图片里出现的称呼（如"我妈"、"小王"、"照片里的中年女性"），猜不出就留空。
 - 时间：能从输入里读到（"昨天下午""2026-08-12 18:00"）就填；读不到就填当前时间，但要把 timestamp_uncertain=true。
 - 严重度：不填。严重度是用户的主观自评，AI 没有资格代填。始终输出 0，由用户在审核面板里手动选择。
+- valence（事件性质）：根据行为本身给出建议值，三选一：
+    "conflict" = 冲突/对抗/负面情绪（争吵、指责、摔东西、冷战）
+    "neutral"  = 中性客观事件（就医、吃药、日程安排，无明显情绪色彩）
+    "positive" = 正面/积极互动（一起做事、关心、和解、轻松对话）
+  注意：valence 是行为性质的客观分类，不是主观感受，AI 可以给建议值，但最终由用户确认。拿不准时填 "neutral"。
 - 标签：从输入里抓几个关键词（逗号分隔），没有就留空。
 - content 字段：对话类事实按"人物A：…；人物B：…"的格式串联完整对话，保留上下文顺序；非对话事件用简洁陈述句。
 - 最终输出必须是纯 JSON，严格匹配如下格式（不要加任何前置解释、不要用代码块包裹也可以）：
@@ -147,6 +154,7 @@ const factExtractSystemPrompt = `你的任务是事实提取员。只做两件�
       "people": "参与人物，逗号分隔",
       "tags": "关键词，逗号分隔",
       "severity": 0,
+      "valence": "conflict",
       "content": "完整对话或事件描述，保留上下文"
     }
   ],
@@ -163,6 +171,7 @@ type factExtractOutput struct {
 		People             string `json:"people"`
 		Tags               string `json:"tags"`
 		Severity           int    `json:"severity"`
+		Valence            string `json:"valence"`
 		Content            string `json:"content"`
 	} `json:"facts"`
 	Notes string `json:"notes"`
@@ -231,11 +240,19 @@ func runFactExtract(userText, imageData string, profileID int) ([]FactCandidate,
 			}
 			sev = &s
 		}
+		// valence 归一化：只接受 conflict/neutral/positive，非法值置空
+		valence := strings.ToLower(strings.TrimSpace(f.Valence))
+		switch valence {
+		case "conflict", "neutral", "positive":
+		default:
+			valence = ""
+		}
 		cands = append(cands, FactCandidate{
 			SuggestedTimestamp: ts,
 			People:             f.People,
 			Tags:               f.Tags,
 			Severity:           sev,
+			Valence:            valence,
 			Content:            strings.TrimSpace(f.Content),
 			Status:             "pending",
 			TimestampUncertain: uncertain,
@@ -258,7 +275,7 @@ func correctEventHandler(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	allowedFields := map[string]bool{"content": true, "people": true, "tags": true, "timestamp": true, "severity_self": true}
+	allowedFields := map[string]bool{"content": true, "people": true, "tags": true, "timestamp": true, "severity_self": true, "valence": true}
 	if !allowedFields[body.Field] {
 		c.JSON(400, gin.H{"error": "不允许修改的字段"})
 		return
@@ -491,6 +508,8 @@ func sessionMessagesHandler(c *gin.Context) {
 	factsBlock := buildFactsBlock(events)
 	systemMsg := APIMessage{Role: "system",
 		Content: modeSystemPrompt(modeV) + "\n\n以下是当前可参考的事实集合（按时间倒序）：\n" + factsBlock}
+	// 采样偏差检测：若事实集合几乎全是高严重度冲突，强制拼元认知警示到 system prompt
+	systemMsg.Content += samplingBiasNotice(events)
 
 	historyMsgs := buildHistoryMessages(turns, 6, modeV)
 
@@ -602,7 +621,7 @@ func sessionMessagesHandler(c *gin.Context) {
 func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []EventRow {
 	rowsMap := map[int]EventRow{}
 	// 路径 A：按筛选条件扫最近 30 条
-	qa := "SELECT id, timestamp, people, tags, severity_self, content FROM events WHERE 1=1"
+	qa := "SELECT id, timestamp, people, tags, severity_self, valence, content FROM events WHERE 1=1"
 	var args []interface{}
 	if filterPeople != "" {
 		qa += " AND people LIKE ?"
@@ -617,7 +636,7 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 	if err == nil {
 		for rows.Next() {
 			var r EventRow
-			rows.Scan(&r.ID, &r.Timestamp, &r.People, &r.Tags, &r.Severity, &r.Content)
+			rows.Scan(&r.ID, &r.Timestamp, &r.People, &r.Tags, &r.Severity, &r.Valence, &r.Content)
 			rowsMap[r.ID] = r
 		}
 		rows.Close()
@@ -625,12 +644,12 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 	// 路径 B：FTS 按用户 query 检索相关
 	if userQuery != "" {
 		rows2, err := db.Query(
-			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.content "+
+			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content "+
 				"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 20", userQuery)
 		if err == nil {
 			for rows2.Next() {
 				var r EventRow
-				rows2.Scan(&r.ID, &r.Timestamp, &r.People, &r.Tags, &r.Severity, &r.Content)
+				rows2.Scan(&r.ID, &r.Timestamp, &r.People, &r.Tags, &r.Severity, &r.Valence, &r.Content)
 				rowsMap[r.ID] = r
 			}
 			rows2.Close()
@@ -648,18 +667,58 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 	return out
 }
 
+func valenceLabel(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "conflict":
+		return "冲突"
+	case "neutral":
+		return "中性"
+	case "positive":
+		return "正面"
+	default:
+		return "未分类"
+	}
+}
+
 func buildFactsBlock(events []EventRow) string {
 	if len(events) == 0 {
 		return "（暂无事实记录）"
 	}
 	var sb strings.Builder
 	for _, e := range events {
-		fmt.Fprintf(&sb, "- #%d [%s] 人物=%s 标签=%s 严重度=%d\n  %s\n\n",
+		fmt.Fprintf(&sb, "- #%d [%s] 人物=%s 标签=%s 严重度=%d 性质=%s\n  %s\n\n",
 			e.ID, e.Timestamp,
 			emptyIf(e.People, "(未填)"), emptyIf(e.Tags, "(未填)"),
-			e.Severity, strings.TrimSpace(e.Content))
+			e.Severity, valenceLabel(e.Valence), strings.TrimSpace(e.Content))
 	}
 	return sb.String()
+}
+
+// samplingBiasNotice 检测事实集合是否存在采样偏差（几乎全是高严重度冲突，
+// 缺少平和/中性/正面事件）。若存在，返回强制拼到 system prompt 的元认知警示。
+// 注意：基于 severity 近似判定（severity_self 是主观自评，不能完全代表 valence），
+// 只有"至少3条高严重度且没有任何1-2严重度事件"才触发，避免误报。
+func samplingBiasNotice(events []EventRow) string {
+	if len(events) < 3 {
+		return ""
+	}
+	high, low := 0, 0
+	for _, e := range events {
+		switch {
+		case e.Severity >= 3:
+			high++
+		case e.Severity >= 1:
+			low++ // 1-2 算相对低/平和
+		}
+	}
+	if high >= 3 && low == 0 {
+		return fmt.Sprintf(
+			"\n\n【采样局限提示：当前事实集合共 %d 条，其中 %d 条为高严重度(≥3)事件，"+
+				"未包含任何严重度≤2 的相对平和互动。这是数据采集层的偏差——人通常只在冲突时才记录，"+
+				"平和/正面瞬间很少被记下。任何关于「关系整体状态/是否值得维系」的推断必须声明这一局限，"+
+				"不得仅凭冲突样本下整体性结论。】", len(events), high)
+	}
+	return ""
 }
 
 func emptyIf(s, def string) string {
@@ -747,6 +806,7 @@ func confirmFactCandidateHandler(c *gin.Context) {
 		People    string  `json:"people"`
 		Tags      string  `json:"tags"`
 		Severity  *int    `json:"severity"`
+		Valence   string  `json:"valence"`
 		Content   string  `json:"content" binding:"required"`
 		Status    *string `json:"status"` // "confirmed" / "dismissed"
 	}
@@ -789,6 +849,16 @@ func confirmFactCandidateHandler(c *gin.Context) {
 		} else if cs[candIdx].Severity != nil {
 			sev = *cs[candIdx].Severity
 		}
+		// valence：用户提交优先，否则用候选自带的 AI 建议，非法值置空
+		valence := strings.ToLower(strings.TrimSpace(body.Valence))
+		if valence == "" {
+			valence = strings.ToLower(strings.TrimSpace(cs[candIdx].Valence))
+		}
+		switch valence {
+		case "conflict", "neutral", "positive":
+		default:
+			valence = ""
+		}
 		ts := body.Timestamp
 		if strings.TrimSpace(ts) == "" {
 			ts = cs[candIdx].SuggestedTimestamp
@@ -796,10 +866,10 @@ func confirmFactCandidateHandler(c *gin.Context) {
 		if strings.TrimSpace(ts) == "" {
 			ts = now
 		}
-		// 写入 events.status = "reviewed"（已审核写入），severity_self 存用户确认的值
+		// 写入 events.status = "reviewed"（已审核写入），severity_self 存用户确认的值，valence 存事件性质
 		res, e := db.Exec(
-			`INSERT INTO events (timestamp, people, tags, severity_self, content, status, created_at) VALUES (?,?,?,?,?,"reviewed",?)`,
-			ts, body.People, body.Tags, sev, body.Content, now,
+			`INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status, created_at) VALUES (?,?,?,?,?,?,"reviewed",?)`,
+			ts, body.People, body.Tags, sev, valence, body.Content, now,
 		)
 		if e != nil {
 			c.JSON(500, gin.H{"error": e.Error()})
@@ -812,6 +882,7 @@ func confirmFactCandidateHandler(c *gin.Context) {
 		cs[candIdx].People = body.People
 		cs[candIdx].Tags = body.Tags
 		cs[candIdx].Severity = &sev
+		cs[candIdx].Valence = valence
 		cs[candIdx].Content = body.Content
 	} else {
 		cs[candIdx].Status = "dismissed"
@@ -855,7 +926,7 @@ func visionExtractHandler(c *gin.Context) {
 }
 
 // batchConfirmHandler: 批量确认候选事实 → 直接写入 events 表
-// 请求体：{ "candidates": [ { "timestamp","people","tags","severity","content" } ] }
+// 请求体：{ "candidates": [ { "timestamp","people","tags","severity","valence","content" } ] }
 func batchConfirmHandler(c *gin.Context) {
 	var body struct {
 		Candidates []struct {
@@ -863,6 +934,7 @@ func batchConfirmHandler(c *gin.Context) {
 			People    string `json:"people"`
 			Tags      string `json:"tags"`
 			Severity  *int   `json:"severity"`
+			Valence   string `json:"valence"`
 			Content   string `json:"content" binding:"required"`
 		} `json:"candidates" binding:"required"`
 	}
@@ -877,13 +949,20 @@ func batchConfirmHandler(c *gin.Context) {
 		if c2.Severity != nil && *c2.Severity >= 1 && *c2.Severity <= 5 {
 			sev = *c2.Severity
 		}
+		// valence 归一化：只接受 conflict/neutral/positive，非法值置空
+		valence := strings.ToLower(strings.TrimSpace(c2.Valence))
+		switch valence {
+		case "conflict", "neutral", "positive":
+		default:
+			valence = ""
+		}
 		ts := c2.Timestamp
 		if strings.TrimSpace(ts) == "" {
 			ts = now
 		}
 		res, err := db.Exec(
-			`INSERT INTO events (timestamp, people, tags, severity_self, content, status, created_at) VALUES (?,?,?,?,?,"reviewed",?)`,
-			ts, c2.People, c2.Tags, sev, c2.Content, now,
+			`INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status, created_at) VALUES (?,?,?,?,?,?,"reviewed",?)`,
+			ts, c2.People, c2.Tags, sev, valence, c2.Content, now,
 		)
 		if err != nil {
 			continue

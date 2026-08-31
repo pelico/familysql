@@ -1725,6 +1725,15 @@ function renderVisionCandidateCard(c, idx){
         <input data-k="severity" type="number" min="1" max="5" value="${sev}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
       </div>
       <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">事件性质</div>
+        <select data-k="valence" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+          <option value="" ${(!c.valence)?'selected':''}>未分类</option>
+          <option value="conflict" ${c.valence==='conflict'?'selected':''}>冲突</option>
+          <option value="neutral" ${c.valence==='neutral'?'selected':''}>中性</option>
+          <option value="positive" ${c.valence==='positive'?'selected':''}>正面</option>
+        </select>
+      </div>
+      <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
         <input data-k="people" value="${escapeAttr(c.people||'')}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
       </div>
@@ -1747,13 +1756,14 @@ window.submitVisionBatch = async function(){
     if (!cb.checked || cb.disabled) return;
     const idx = parseInt(cb.dataset.idx, 10);
     const inputs = document.querySelectorAll(`.vis-f[data-idx="${idx}"]`);
-    if (inputs.length < 5) return;
+    if (inputs.length < 6) return;
     toConfirm.push({
       timestamp: inputs[0].value,
       severity: parseInt(inputs[1].value, 10),
-      people: inputs[2].value,
-      tags: inputs[3].value,
-      content: inputs[4].value,
+      valence: inputs[2].value,
+      people: inputs[3].value,
+      tags: inputs[4].value,
+      content: inputs[5].value,
     });
   });
   if (toConfirm.length === 0) { alert('请至少勾选一条要入库的候选'); return; }
@@ -2260,6 +2270,15 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
         <input data-k="severity" type="number" min="1" max="5" value="${sev}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
       </div>
       <div>
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">事件性质</div>
+        <select data-k="valence" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+          <option value="" ${(!c.valence)?'selected':''}>未分类</option>
+          <option value="conflict" ${c.valence==='conflict'?'selected':''}>冲突</option>
+          <option value="neutral" ${c.valence==='neutral'?'selected':''}>中性</option>
+          <option value="positive" ${c.valence==='positive'?'selected':''}>正面</option>
+        </select>
+      </div>
+      <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
         <input data-k="people" value="${escapeAttr(c.people||'')}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
       </div>
@@ -2289,17 +2308,19 @@ window.submitCandidate = async function(sid, tIdx, cIdx, status, btn){
   const panels = document.querySelectorAll('#turnsList > div');
   const turnEl = panels[tIdx];
   const inputs = turnEl.querySelectorAll(`.cand-f`);
-  // 对应 candidate card 的 fields：在同一 turn 中所有卡片字段按 5 个一组（ts,sev,people,tags,content）
-  const start = cIdx * 5;
+  // 对应 candidate card 的 fields：在同一 turn 中所有卡片字段按 6 个一组（ts,sev,valence,people,tags,content）
+  const start = cIdx * 6;
   const tsInput = inputs[start];
   const sevInput = inputs[start+1];
-  const peopleInput = inputs[start+2];
-  const tagsInput = inputs[start+3];
-  const contentInput = inputs[start+4];
+  const valenceInput = inputs[start+2];
+  const peopleInput = inputs[start+3];
+  const tagsInput = inputs[start+4];
+  const contentInput = inputs[start+5];
   if (!contentInput) { alert('找不到字段'); return; }
   const payload = {
     timestamp: tsInput.value,
     severity: parseInt(sevInput.value,10),
+    valence: valenceInput.value,
     people: peopleInput.value,
     tags: tagsInput.value,
     content: contentInput.value,
