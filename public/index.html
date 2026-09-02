@@ -92,18 +92,6 @@
   .header-new-btn:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 4px 12px rgba(99,102,241,0.30); }
   .header-new-btn:active { transform: translateY(0); }
   .header-new-btn svg { width: 14px; height: 14px; stroke-width: 2.4; }
-  .settings-btn {
-    width: 36px; height: 36px;
-    border-radius: 9px;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent;
-    border: 1px solid rgba(15,23,42,0.08);
-    color: #334155;
-    cursor: pointer;
-    transition: background .15s, color .15s;
-  }
-  .settings-btn:hover { background: rgba(15,23,42,0.04); color: #0f172a; }
-  .settings-btn svg { width: 18px; height: 18px; stroke-width: 2; }
 
   /* ========== 分段控制器 Tab（带滑动指示器） ========== */
   .tab-bar-wrapper {
@@ -776,27 +764,7 @@
   .link-chip:hover { color: #4338ca; text-decoration: underline; }
   .link-chip svg { width: 11px; height: 11px; stroke-width: 2.4; }
 
-  /* ========== 浮动新建按钮 + 全屏会话 ========== */
-  .fab-new-session {
-    position: fixed;
-    right: 24px; bottom: 28px;
-    width: 52px; height: 52px;
-    border-radius: 16px;
-    background: linear-gradient(135deg,#6366f1,#8b5cf6);
-    color: #fff;
-    border: none; cursor: pointer;
-    box-shadow: 0 4px 14px rgba(99,102,241,0.35), 0 1px 3px rgba(0,0,0,0.08);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 40;
-    transition: transform .15s, box-shadow .15s;
-  }
-  .fab-new-session:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(99,102,241,0.40), 0 2px 5px rgba(0,0,0,0.10);
-  }
-  .fab-new-session:active { transform: translateY(0); }
-  .fab-new-session svg { width: 22px; height: 22px; stroke-width: 2.4; }
-
+  /* ========== 全屏会话 ========== */
   .session-fullscreen {
     display: none;
     position: fixed;
@@ -1145,6 +1113,7 @@
               <input id="sessPeople" placeholder="按人物限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
               <input id="sessTags" placeholder="按标签限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
             </div>
+            <div id="peopleHint" style="display:none;margin-top:6px;font-size:11px;color:#c2410c;line-height:1.5;">⚠️ 此模式必须填写人物限定，否则复盘参考/历史样本为空。</div>
           </div>
         </div>
       </div>
@@ -1861,11 +1830,8 @@ window.submitVisionBatch = async function(){
       btn.textContent = '已入库 ✓';
       setTimeout(()=>{
         clearVisionImage();
-        const evTab = document.querySelector('.tab-btn[data-tab="events-add"]');
-        if (evTab) { /* stay on current tab */ }
-        // 刷新事件列表
-        loadEvents();
-        loadStats();
+        // 刷新事实库时间线（如果在事实库页的话）
+        if (typeof loadTimeline === 'function') loadTimeline();
       }, 1200);
     }
   } catch(e){
@@ -2133,6 +2099,23 @@ function renderModeSelector(){
 window.pickMode = function(k){
   state.chosenMode = k;
   renderModeSelector();
+  // response_draft / daily_connect 依赖人物限定，自动展开高级配置
+  if (k === 'response_draft' || k === 'daily_connect') {
+    const box = document.getElementById('advConfigBox');
+    const icon = document.getElementById('toggleAdvConfigIcon');
+    const text = document.getElementById('toggleAdvConfigText');
+    if (box && !box.classList.contains('open')) {
+      box.classList.add('open');
+      if (icon) icon.style.transform = 'rotate(90deg)';
+      if (text) text.textContent = '收起';
+    }
+    const hint = document.getElementById('peopleHint');
+    if (hint) hint.style.display = 'block';
+    setTimeout(() => { const el = document.getElementById('sessPeople'); if (el) el.focus(); }, 100);
+  } else {
+    const hint = document.getElementById('peopleHint');
+    if (hint) hint.style.display = 'none';
+  }
 };
 function renderProfilePicker(){
   const box = document.getElementById('profilePicker');
@@ -2438,7 +2421,7 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
               (uncert?'待核实·时间占位':'待审核');
   const ts = c.suggested_timestamp || c.timestamp || '';
   return `
-  <div style="background:#fff;border:1px solid rgba(15,23,42,0.07);border-radius:12px;padding:12px 14px;${uncert && !isDone ? 'border-color:#f59e0b;background:linear-gradient(180deg,#fffbeb,#ffffff);' : ''}">
+  <div data-cand-idx="${cIdx}" style="background:#fff;border:1px solid rgba(15,23,42,0.07);border-radius:12px;padding:12px 14px;${uncert && !isDone ? 'border-color:#f59e0b;background:linear-gradient(180deg,#fffbeb,#ffffff);' : ''}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;${badgeColor}letter-spacing:.03em;">${tag}</span>
       ${c.extract_error ? `<span style="font-size:10.5px;color:#64748b;">原提取备注：${escapeHtml(c.extract_error)}</span>`:''}
@@ -2483,22 +2466,18 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
   </div>`;
 }
 window.submitCandidate = async function(sid, tIdx, cIdx, status, btn){
-  const card = btn.closest && btn.closest('div[class*="glass"]');
-  // 取 card 的 fields：
-  const root = btn.closest('.reply-card')?.parentElement?.parentElement || btn.parentElement.parentElement.parentElement.parentElement;
-  const cardEl = btn.closest('[data-k]') || btn.parentElement.parentElement; // fallback: walk inputs from the wrapper containing inputs
-  // 更稳妥：按 sid/tIdx/cIdx 重走 DOM 查找对应卡片 input（面板在 reply-grid 下方的第二个父）
+  // 按 sid/tIdx/cIdx 重走 DOM 查找对应卡片 input
   const panels = document.querySelectorAll('#turnsList > div');
   const turnEl = panels[tIdx];
-  const inputs = turnEl.querySelectorAll(`.cand-f`);
-  // 对应 candidate card 的 fields：在同一 turn 中所有卡片字段按 6 个一组（ts,sev,valence,people,tags,content）
-  const start = cIdx * 6;
-  const tsInput = inputs[start];
-  const sevInput = inputs[start+1];
-  const valenceInput = inputs[start+2];
-  const peopleInput = inputs[start+3];
-  const tagsInput = inputs[start+4];
-  const contentInput = inputs[start+5];
+  // 用 data-cand-idx 属性精确定位当前卡片的字段，不再靠数组位置计数
+  const cardEl = turnEl && turnEl.querySelector(`[data-cand-idx="${cIdx}"]`);
+  if (!cardEl) { alert('找不到候选卡片'); return; }
+  const tsInput = cardEl.querySelector('[data-k="timestamp"]');
+  const sevInput = cardEl.querySelector('[data-k="severity"]');
+  const valenceInput = cardEl.querySelector('[data-k="valence"]');
+  const peopleInput = cardEl.querySelector('[data-k="people"]');
+  const tagsInput = cardEl.querySelector('[data-k="tags"]');
+  const contentInput = cardEl.querySelector('[data-k="content"]');
   if (!contentInput) { alert('找不到字段'); return; }
   const payload = {
     timestamp: tsInput.value,
