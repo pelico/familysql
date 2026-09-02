@@ -1048,6 +1048,18 @@
         </div>
         <div id="modePromptsList"></div>
       </div>
+
+      <!-- 人物管理：解决重复/拼写错误（悠悠/youyou）合并 -->
+      <div style="padding-top:12px;border-top:1px dashed rgba(15,23,42,0.08);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+          <div>
+            <div style="font-size:12.5px;font-weight:700;color:#334155;">人物管理（修复重复/错拼）</div>
+            <div style="font-size:10.5px;color:#64748b;margin-top:2px;">重命名会同步改 events / interaction_patterns / sessions 里所有引用，支持两条合并成同一人。</div>
+          </div>
+          <button style="padding:6px 12px;font-size:11px;border:1px solid rgba(15,23,42,0.12);border-radius:7px;background:#fff;color:#475569;cursor:pointer;" onclick="renderPeopleManager()">刷新</button>
+        </div>
+        <div id="peopleManager" style="max-height:260px;overflow:auto;border:1px solid rgba(15,23,42,0.06);border-radius:10px;"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2893,6 +2905,60 @@ window.openSettings = function(){
   document.getElementById('settingsModal').classList.add('open');
   renderProfiles();
   renderModePrompts();
+  renderPeopleManager();
+};
+// ---- 人物管理（修复重复/错拼）----
+window.renderPeopleManager = async function(){
+  const box = document.getElementById('peopleManager');
+  if (!box) return;
+  box.innerHTML = '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;">加载中…</div>';
+  const allPeopleRes = await fetch('/api/people');
+  const list = (await allPeopleRes.json()).people || [];
+  if (list.length === 0) {
+    box.innerHTML = '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;">暂无人物，先去记录事实会自动添加。</div>';
+    return;
+  }
+  // 每条一行：显示名字 + 输入框（新名字，默认填原名）+ 「应用重命名/合并」按钮 + 删除
+  const mergeOptions = '<option value="">（仅重命名，不合并）</option>' +
+    list.map(p=>`<option value="${escapeAttr(p.name)}">${escapeHtml(p.name)}</option>`).join('');
+  box.innerHTML = list.map(p=>`
+    <div style="display:grid;grid-template-columns:1fr 1.5fr auto auto;gap:7px;padding:9px 10px;border-bottom:1px solid rgba(15,23,42,0.05);align-items:center;">
+      <div style="font-size:12.5px;font-weight:600;color:#0f172a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(p.name)}">${escapeHtml(p.name)}</div>
+      <input id="pm_rename_${p.id}" class="field" value="${escapeAttr(p.name)}" style="padding:6px 9px;font-size:12px;">
+      <button class="btn-primary" style="padding:6px 10px;font-size:11px;" onclick="renamePerson(${p.id}, document.getElementById('pm_rename_${p.id}').value)">重命名</button>
+      <button class="btn-ghost" style="padding:6px 10px;font-size:11px;color:#991b1b;" onclick="deletePerson(${p.id},'${escapeAttr(p.name)}')">删除</button>
+    </div>
+  `).join('');
+};
+window.renamePerson = async function(id, newNameRaw){
+  const newName = (newNameRaw||'').trim();
+  if (!newName) { alert('新名字不能为空'); return; }
+  const confirm = window.confirm(`此操作会把该人物在事实库、互动模式、历史会话里的所有引用同步替换。\n确定？`);
+  if (!confirm) return;
+  try {
+    const res = await fetch(`/api/people/${id}/rename`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({new_name:newName})
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    // 合并/替换完成后，同步刷新前端内存里的 allPeople 与 datalist
+    await fetchAllPeople();
+    renderPeopleManager();
+    alert(d.merged
+      ? `✓ 已合并：「${d.old_name}」 → 「${d.new_name}」。更新了 ${d.events_updated} 条 facts。`
+      : `✓ 已重命名：「${d.old_name}」 → 「${d.new_name}」。更新了 ${d.events_updated} 条 facts。`);
+  } catch(e){ alert('失败：'+e.message); }
+};
+window.deletePerson = async function(id, name){
+  if (!window.confirm(`删除「${name}」仅删除此人物清单条目，不会改历史数据。\n如果是两条错拼想合并，请用「重命名」直接改成同名。\n继续删除？`)) return;
+  try {
+    const res = await fetch(`/api/people/${id}`,{method:'DELETE'});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    await fetchAllPeople();
+    renderPeopleManager();
+  } catch(e){ alert('失败：'+e.message); }
 };
 // ---- 提示词管理 ----
 window.renderModePrompts = async function(){

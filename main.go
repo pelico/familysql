@@ -354,17 +354,130 @@ func main() {
 		c.JSON(200, gin.H{"id": id, "name": name, "created": affected > 0})
 	})
 	r.DELETE("/api/people/:id", func(c *gin.Context) {
-		id := c.Param("id")
-		// 检查是否被 events 引用
-		var cnt int
-		db.QueryRow("SELECT COUNT(*) FROM events WHERE people LIKE ?", "%"+id+"%").Scan(&cnt) // 粗略检查，实际 people 是逗号分隔的
-		// 更精确：用 splitAndTrim 匹配（但 SQL 不好做，这里放宽——前端会二次确认）
-		_, err := db.Exec("DELETE FROM people WHERE id=?", id)
+		idStr := c.Param("id")
+		_, err := db.Exec("DELETE FROM people WHERE id=?", idStr)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(200, gin.H{"deleted": true})
+	})
+
+	// 人物重命名 / 合并：
+	// - 把旧名字 old_name 在所有表中出现的地方替换成 new_name
+	// - 如果 people 表里已经有 new_name（合并场景），删除旧记录；否则把原记录 UPDATE 名字
+	// - events.people 是逗号分隔字符串，用 token 级精确替换（避免 "you" 错换掉 "youyou"）
+	// - interaction_patterns.person 是整字段匹配
+	// - sessions.filter_people 同理整字段匹配
+	r.POST("/api/people/:id/rename", func(c *gin.Context) {
+		idStr := c.Param("id")
+		var body struct {
+			NewName string `json:"new_name" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(400, gin.H{"error": "new_name is required"})
+			return
+		}
+		newName := strings.TrimSpace(body.NewName)
+		if newName == "" {
+			c.JSON(400, gin.H{"error": "new_name cannot be empty"})
+			return
+		}
+
+		// 1. 拿旧名字
+		var oldName string
+		err := db.QueryRow("SELECT name FROM people WHERE id=?", idStr).Scan(&oldName)
+		if err != nil {
+			c.JSON(404, gin.H{"error": "person not found"})
+			return
+		}
+		if oldName == newName {
+			c.JSON(200, gin.H{"skipped": true, "reason": "same name"})
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil { c.JSON(500, gin.H{"error":err.Error()}); return }
+		defer func() { _ = tx.Rollback() }()
+
+		// 2. 替换 events.people —— 逗号分隔，按 token 精确匹配
+		//    用 SQLite 无法直接做 token 级替换，所以把需要处理的行读出来，Go 里 split 后替换再写回去
+		type evRow struct {
+			id     int
+			people string
+		}
+		evRows := []evRow{}
+		{
+			like := "%"+oldName+"%"
+			rows, qerr := tx.Query("SELECT id, people FROM events WHERE people LIKE ? AND people IS NOT NULL", like)
+			if qerr != nil { c.JSON(500, gin.H{"error": qerr.Error()}); return }
+			for rows.Next() {
+				var r evRow
+				var pp *string
+				rows.Scan(&r.id, &pp)
+				if pp != nil { r.people = *pp }
+				evRows = append(evRows, r)
+			}
+			rows.Close()
+		}
+		for _, r := range evRows {
+			tokens := splitAndTrim(r.people)
+			changed := false
+			for i, t := range tokens {
+				if t == oldName {
+					tokens[i] = newName
+					changed = true
+				}
+			}
+			if changed {
+				// 去重（合并时可能出现同名重复 token）
+				seen := map[string]struct{}{}
+				uniq := make([]string, 0, len(tokens))
+				for _, t := range tokens {
+					if _, ok := seen[t]; !ok {
+						seen[t] = struct{}{}
+						uniq = append(uniq, t)
+					}
+				}
+				newPeople := strings.Join(uniq, ", ")
+				tx.Exec("UPDATE events SET people=? WHERE id=?", newPeople, r.id)
+			}
+		}
+
+		// 3. 替换 interaction_patterns.person（整字段匹配）
+		{
+			_, uerr := tx.Exec("UPDATE interaction_patterns SET person=? WHERE person=?", newName, oldName)
+			if uerr != nil { c.JSON(500, gin.H{"error": uerr.Error()}); return }
+		}
+
+		// 4. 替换 sessions.filter_people（整字段匹配）
+		{
+			_, uerr := tx.Exec("UPDATE sessions SET filter_people=? WHERE filter_people=?", newName, oldName)
+			if uerr != nil { c.JSON(500, gin.H{"error": uerr.Error()}); return }
+		}
+
+		// 5. 处理 people 表本身
+		var newID int
+		existsErr := tx.QueryRow("SELECT id FROM people WHERE name=?", newName).Scan(&newID)
+		if existsErr == nil && newID > 0 {
+			// people 表里已存在同名记录（合并场景）→ 删除旧 id
+			tx.Exec("DELETE FROM people WHERE id=?", idStr)
+		} else {
+			// 没同名 → 直接 UPDATE 原记录 name
+			tx.Exec("UPDATE people SET name=? WHERE id=?", newName, idStr)
+		}
+
+		if cerr := tx.Commit(); cerr != nil {
+			c.JSON(500, gin.H{"error": cerr.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"ok":            true,
+			"old_name":      oldName,
+			"new_name":      newName,
+			"events_updated": len(evRows),
+			"merged":        existsErr == nil && newID > 0,
+		})
 	})
 
 	// 事件单条查询
