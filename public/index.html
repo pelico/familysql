@@ -1110,8 +1110,8 @@
               </select>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <input id="sessPeople" placeholder="按人物限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
-              <input id="sessTags" placeholder="按标签限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
+              <div id="sessPeoplePicker" style="grid-column:1 / -1;"></div>
+              <input id="sessTags" placeholder="按标签限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;grid-column:1 / -1;">
             </div>
             <div id="peopleHint" style="display:none;margin-top:6px;font-size:11px;color:#c2410c;line-height:1.5;">⚠️ 此模式必须填写人物限定，否则复盘参考/历史样本为空。</div>
           </div>
@@ -1349,7 +1349,7 @@
   <div id="facts-review" class="facts-section">
     <div class="glass-card" style="padding:14px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-        <input id="tlFilterPeople" placeholder="按人物筛选" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
+        <div id="tlFilterPeoplePicker"></div>
         <input id="tlFilterTags" placeholder="按标签筛选" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
       </div>
       <input id="tlSearch" placeholder="全文搜索..." class="field" style="padding:9px 11px;font-size:12.5px;" oninput="onSearchInput()">
@@ -1379,7 +1379,7 @@
         </div>
       </div>
       <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;">
-        <input id="patPerson" placeholder="人物" class="field" style="padding:9px 11px;font-size:12.5px;">
+        <div id="patPersonPicker"></div>
         <input id="patTrigger" placeholder="触发情境，如：长辈生活习惯被质疑" class="field" style="padding:9px 11px;font-size:12.5px;">
         <textarea id="patObserved" rows="2" placeholder="观察到的反应（只写行为，不下定性）" class="field" style="padding:9px 11px;font-size:12.5px;min-height:68px;"></textarea>
         <input id="patRef" placeholder="关联 event_id，逗号分隔（可空）" class="field" style="padding:9px 11px;font-size:12.5px;">
@@ -1390,7 +1390,7 @@
     </div>
 
     <div class="glass-card" style="padding:13px;">
-      <input id="patFilterPerson" placeholder="按人物筛选查看" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadPatterns()">
+      <div id="patFilterPersonPicker"></div>
     </div>
 
     <div id="patternsList" class="section-space"></div>
@@ -1449,6 +1449,8 @@ const state = {
   visionOpen: false,
   visionImageData: '',
   visionCandidates: [],
+  allPeople: [],            // 从 /api/people 加载的规范化人物列表
+  peoplePickers: {},       // 容器 ID → { selected: [], multi: bool, onChange: fn }
 };
 
 const sevLabels = {
@@ -1553,6 +1555,99 @@ async function fetchMetadata(){
     state.availablePeople = d.people||[]; state.availableTags = d.tags||[];
     renderDropdowns(); renderChips();
   } catch(e){console.error(e);}
+}
+
+// ---- 通用人物选择器 ----
+async function fetchAllPeople(){
+  try {
+    const res = await fetch('/api/people'); const d = await res.json();
+    state.allPeople = (d.people||[]).map(p=>p.name);
+    // 同步更新 availablePeople，给旧的下拉用
+    state.allPeople.forEach(p=>{ if(!state.availablePeople.includes(p)) state.availablePeople.push(p); });
+    // 同步填充全局 datalist
+    const dl = document.getElementById('peopleDatalist');
+    if (dl) dl.innerHTML = state.allPeople.map(p=>`<option value="${escapeHtml(p)}">`).join('');
+  } catch(e){ console.error(e); }
+}
+
+function initPeoplePicker(containerId, opts){
+  // opts: { multi: bool, initial: [string], onChange: fn, placeholder: string }
+  state.peoplePickers[containerId] = {
+    selected: (opts.initial||[]).slice(),
+    multi: opts.multi !== false,
+    onChange: opts.onChange || (()=>{}),
+    placeholder: opts.placeholder || '选择人物…',
+  };
+  renderPeoplePicker(containerId);
+}
+
+function renderPeoplePicker(containerId){
+  const pk = state.peoplePickers[containerId];
+  if (!pk) return;
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const selected = pk.selected;
+  const available = state.allPeople.filter(p => !selected.includes(p));
+
+  const chipsHtml = selected.length === 0
+    ? `<span style="font-size:11px;color:#94a3b8;">${escapeHtml(pk.placeholder)}</span>`
+    : selected.map(p =>
+        `<span class="pill p-indigo">${escapeHtml(p)}<span class="pill-close" onclick="togglePeoplePicker('${containerId}','${escapeHtml(p)}')">×</span></span>`
+      ).join('');
+
+  const dropdownHtml = available.length === 0
+    ? `<option value="">（无更多人物）</option>`
+    : '<option value="">选择已有…</option>' +
+      available.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;min-height:24px;">${chipsHtml}</div>
+    <div style="display:flex;gap:6px;">
+      <select class="field people-pick-sel" style="padding:6px 9px;font-size:12px;flex:1;" onchange="onPeoplePickerSelect('${containerId}', this.value)">
+        ${dropdownHtml}
+      </select>
+      <input class="field people-pick-new" placeholder="或新增" style="padding:6px 9px;font-size:12px;width:35%;" onkeydown="if(event.key==='Enter'){event.preventDefault();addPeoplePickerNew('${containerId}',this.value);this.value='';}">
+      <button type="button" class="btn-ghost" style="padding:6px 10px;font-size:12px;" onclick="addPeoplePickerNew('${containerId}', this.previousElementSibling.value); this.previousElementSibling.value='';">＋</button>
+    </div>`;
+}
+
+function togglePeoplePicker(containerId, name){
+  const pk = state.peoplePickers[containerId];
+  if (!pk) return;
+  pk.selected = pk.selected.filter(x => x !== name);
+  renderPeoplePicker(containerId);
+  pk.onChange(pk.selected);
+}
+
+function onPeoplePickerSelect(containerId, val){
+  if (!val) return;
+  const pk = state.peoplePickers[containerId];
+  if (!pk) return;
+  if (!pk.multi) pk.selected = [];
+  if (!pk.selected.includes(val)) pk.selected.push(val);
+  renderPeoplePicker(containerId);
+  pk.onChange(pk.selected);
+}
+
+function addPeoplePickerNew(containerId, val){
+  val = (val||'').trim();
+  if (!val) return;
+  const pk = state.peoplePickers[containerId];
+  if (!pk) return;
+  // 新增到全局列表
+  if (!state.allPeople.includes(val)) {
+    state.allPeople.push(val);
+    fetch('/api/people', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:val})}).catch(()=>{});
+  }
+  if (!pk.multi) pk.selected = [];
+  if (!pk.selected.includes(val)) pk.selected.push(val);
+  renderPeoplePicker(containerId);
+  pk.onChange(pk.selected);
+}
+
+function getPeoplePickerValue(containerId){
+  const pk = state.peoplePickers[containerId];
+  return pk ? pk.selected.join(', ') : '';
 }
 function renderDropdowns(){
   const pS = document.getElementById('peopleSelect');
@@ -1782,7 +1877,7 @@ function renderVisionCandidateCard(c, idx){
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
-        <input data-k="people" value="${escapeAttr(c.people||'')}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+        <input data-k="people" value="${escapeAttr(c.people||'')}" class="field vis-f" data-idx="${idx}" list="peopleDatalist" style="padding:7px 10px;font-size:12.5px;">
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
@@ -1915,7 +2010,7 @@ function emptyHTML(esTitle, esSub){
   </div>`;
 }
 async function loadTimeline(){
-  const people = document.getElementById('tlFilterPeople').value.trim();
+  const people = getPeoplePickerValue('tlFilterPeoplePicker').trim();
   const tags = document.getElementById('tlFilterTags').value.trim();
   const q = document.getElementById('tlSearch').value.trim();
   let events;
@@ -2111,7 +2206,10 @@ window.pickMode = function(k){
     }
     const hint = document.getElementById('peopleHint');
     if (hint) hint.style.display = 'block';
-    setTimeout(() => { const el = document.getElementById('sessPeople'); if (el) el.focus(); }, 100);
+    setTimeout(() => {
+      const sel = document.querySelector('#sessPeoplePicker .people-pick-sel');
+      if (sel) sel.focus();
+    }, 100);
   } else {
     const hint = document.getElementById('peopleHint');
     if (hint) hint.style.display = 'none';
@@ -2158,6 +2256,13 @@ window.toggleSessProfClick = function(id, el){
 };
 window.openNewSessionModal = function(){
   document.getElementById('newSessionModal').classList.add('open');
+  // 初始化人物选择器（每次打开弹窗时重置）
+  initPeoplePicker('sessPeoplePicker', {
+    multi: false,
+    placeholder: '选择人物限定…（可选）',
+    initial: [],
+    onChange: () => {}
+  });
 };
 window.closeNewSessionModal = function(){
   document.getElementById('newSessionModal').classList.remove('open');
@@ -2174,7 +2279,7 @@ window.createSession = async function(){
   const factPID = parseInt(document.getElementById('factProfileSelect').value, 10) || 0;
   const body = {
     mode: state.chosenMode,
-    people: document.getElementById('sessPeople').value.trim(),
+    people: getPeoplePickerValue('sessPeoplePicker').trim(),
     tags: document.getElementById('sessTags').value.trim(),
     profile_ids: Array.from(state.sessionProfiles),
   };
@@ -2446,7 +2551,7 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">人物（逗号分隔）</div>
-        <input data-k="people" value="${escapeAttr(c.people||'')}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+        <input data-k="people" value="${escapeAttr(c.people||'')}" ${isDone?'disabled':''} class="field cand-f" list="peopleDatalist" style="padding:7px 10px;font-size:12.5px;">
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
@@ -2605,7 +2710,7 @@ window.closeAnalysisModal = function(){
 // =====================================================
 window.addPattern = async function(){
   const body = {
-    person: document.getElementById('patPerson').value.trim(),
+    person: getPeoplePickerValue('patPersonPicker').trim(),
     trigger_context: document.getElementById('patTrigger').value.trim(),
     observed_pattern: document.getElementById('patObserved').value.trim(),
     ref_event_ids: document.getElementById('patRef').value.trim(),
@@ -2616,11 +2721,14 @@ window.addPattern = async function(){
   const res = await fetch('/api/interaction_patterns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const r = await res.json().catch(()=>({}));
   if (!res.ok){ alert('失败: '+(r.error||'')); return; }
-  ['patPerson','patTrigger','patObserved','patRef','patResponse','patOutcome'].forEach(i=>document.getElementById(i).value='');
+  // 重置人物选择器
+  const pk = state.peoplePickers['patPersonPicker'];
+  if (pk) { pk.selected = []; renderPeoplePicker('patPersonPicker'); }
+  ['patTrigger','patObserved','patRef','patResponse','patOutcome'].forEach(i=>document.getElementById(i).value='');
   loadPatterns();
 };
 async function loadPatterns(){
-  const person = document.getElementById('patFilterPerson').value.trim();
+  const person = getPeoplePickerValue('patFilterPersonPicker').trim();
   const p = new URLSearchParams(); if (person) p.set('person',person);
   const list = await fetch('/api/interaction_patterns?'+p.toString()).then(r=>r.json()).catch(()=>[]);
   const box = document.getElementById('patternsList');
@@ -2870,6 +2978,33 @@ window.deleteAnalysis = async function(id){
 // =====================================================
 setLocalTime();
 fetchMetadata();
+fetchAllPeople().then(() => {
+  // 初始化事实库筛选的人物选择器
+  initPeoplePicker('tlFilterPeoplePicker', {
+    multi: false,
+    placeholder: '按人物筛选…',
+    initial: [],
+    onChange: () => loadTimeline()
+  });
+  // 初始化互动模式页的人物选择器
+  initPeoplePicker('patPersonPicker', {
+    multi: false,
+    placeholder: '人物…',
+    initial: [],
+    onChange: (sel) => {
+      // 同步到筛选器
+      const fpk = state.peoplePickers['patFilterPersonPicker'];
+      if (fpk) { fpk.selected = sel.slice(); renderPeoplePicker('patFilterPersonPicker'); }
+      loadPatterns();
+    }
+  });
+  initPeoplePicker('patFilterPersonPicker', {
+    multi: false,
+    placeholder: '按人物筛选…',
+    initial: [],
+    onChange: () => loadPatterns()
+  });
+});
 updateSev(1);
 renderModeSelector();
 renderProfilePicker();
@@ -2877,5 +3012,6 @@ checkLLMStatus();
 loadSessionList();
 loadSavedAnalyses();
 </script>
+<datalist id="peopleDatalist"></datalist>
 </body>
 </html>
