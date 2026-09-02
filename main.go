@@ -674,7 +674,7 @@ func main() {
 	// mode 提示词管理：允许在设置里覆盖代码内置的默认 prompt，改完不用重新部署
 	// =====================================================
 	r.GET("/api/mode-prompts", func(c *gin.Context) {
-		modes := []string{"pattern_query", "contradiction_check", "hypothesis_only", "review", "response_draft"}
+		modes := []string{"pattern_query", "contradiction_check", "hypothesis_only", "review", "response_draft", "daily_connect"}
 		var res []map[string]interface{}
 		for _, m := range modes {
 			var custom, updatedAt string

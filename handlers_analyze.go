@@ -88,6 +88,7 @@ var validModes = map[string]bool{
 	"hypothesis_only":     true,
 	"review":              true,
 	"response_draft":      true,
+	"daily_connect":       true,
 }
 
 // modeSystemPrompt 按 mode 给出系统提示（prompt_version = "1.0" 固定版本，后续升级可记录）
@@ -140,6 +141,25 @@ func modeSystemPrompt(mode string) string {
 - Block A 和 Block B 在使用时机上强制分开：A 是当场发的，B 是事后/当面才用的
 - Block B 不得替用户下"关系整体如何"的判断（那是别的模式的事），只针对这次分歧点
 - 若未提供历史互动模式样本，Block B 仍要输出，但明确写"暂无该人物历史样本，本次为首次记录，建议事后补记结果"`
+	case "daily_connect":
+		return `你是"日常联结素材助手"。用户没有和对方发生冲突，只是想主动联系一下，但担心自己组织的语言带着情绪或说教。
+
+你的任务是提供【原始素材】，绝对不是完整的话术、不是可以直接发送的句子。
+
+## 可以提及的近况
+从下方事实集合里，挑出最近的、性质=正面或中性的事件（如果有），列成关键词/短语，不成句。
+例：孩子发烧、退烧、婆婆、班务 —— 只给名词短语，不写"我听说孩子退烧了真是太好了"这种完整句子。
+
+## 近期敏感区（最好先避开）
+从事实集合里，找出最近7天内性质=冲突、且严重度较高的事件涉及的话题关键词，列出来提醒用户"这几个话题这次先别碰"。
+只给话题关键词，不给具体内容，不复述吵架细节。
+
+硬性约束：
+- 全文禁止出现完整主谓宾句子，只能是词、短语、要点列表
+- 禁止使用"因为""其实""你可能""建议""应该"这类连接词或说教词
+- 禁止生成任何可以原样复制发送的内容
+- 如果近30天没有任何正面/中性事件记录，明确写"暂无近期正面互动记录，可参考行为模式样本或单纯表达陪伴"
+- 如果没有历史互动模式样本，也如实写"暂无样本"`
 	default:
 		return `你是客观的事实整理助理。只做事实汇总，不下定性结论。每条结论标注对应 event_id。`
 	}
@@ -547,6 +567,11 @@ func sessionMessagesHandler(c *gin.Context) {
 	if modeV == "response_draft" {
 		systemMsg.Content += buildPatternsContext(fpV)
 	}
+	// daily_connect 模式：拼近30天正面/中性事件摘要 + 历史互动模式样本
+	if modeV == "daily_connect" {
+		systemMsg.Content += buildRecentPositiveContext(fpV)
+		systemMsg.Content += buildPatternsContext(fpV)
+	}
 
 	historyMsgs := buildHistoryMessages(turns, 6, modeV)
 
@@ -815,6 +840,49 @@ func buildPatternsContext(person string) string {
 	}
 	if cnt == 0 {
 		return "\n\n【该人物的历史互动模式样本】暂无记录（本次为首次记录，建议事后补记 response_tried 与 outcome）"
+	}
+	return sb.String()
+}
+
+// buildRecentPositiveContext 取该人物最近30天 valence=positive/neutral 的事件，
+// 供 daily_connect 模式"可以提及的近况"使用。只给标签+摘要片段，不给完整句子。
+func buildRecentPositiveContext(person string) string {
+	if strings.TrimSpace(person) == "" {
+		return ""
+	}
+	rows, err := db.Query(
+		`SELECT tags, content, timestamp FROM events
+		 WHERE people LIKE ? AND valence IN ('positive','neutral')
+		 AND datetime(timestamp) > datetime('now','-30 days')
+		 ORDER BY datetime(timestamp) DESC LIMIT 15`,
+		"%"+person+"%")
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var sb strings.Builder
+	cnt := 0
+	for rows.Next() {
+		var tagsP, contentP *string
+		var ts string
+		if err := rows.Scan(&tagsP, &contentP, &ts); err != nil {
+			continue
+		}
+		tags, content := "", ""
+		if tagsP != nil {
+			tags = *tagsP
+		}
+		if contentP != nil {
+			content = *contentP
+		}
+		cnt++
+		if cnt == 1 {
+			sb.WriteString("\n\n【近30天正面/中性事件（原始摘要，不是话术）】\n")
+		}
+		fmt.Fprintf(&sb, "- [%s] 标签=%s 摘要=%s\n", ts, emptyIf(tags, "无"), truncate(content, 60))
+	}
+	if cnt == 0 {
+		return "\n\n【近30天正面/中性事件】暂无记录"
 	}
 	return sb.String()
 }

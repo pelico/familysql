@@ -1492,6 +1492,7 @@ const modeInfo = {
   hypothesis_only:     { title: '假设构建',     desc: '允许综合推断，但强制假设句式+置信度标注+双重解释+event引用。仅在确实需要理脉络时使用。' },
   review:              { title: '复检校准',     desc: '拿此前保存的某条分析对照新事实，检验是否被印证 —— 校准你对 AI 分析的信任程度。' },
   response_draft:      { title: '回复草拟',     desc: '针对对方一条消息生成"这次怎么回"。当场回复候选(A)默认展开，复盘参考(B)折叠。用前先在会话设人物限定，复盘参考依赖历史互动样本。' },
+  daily_connect:       { title: '日常联结',     desc: '没有冲突、主动想联系时用。只给关键词素材和"近期先别碰"的话题提醒，绝不生成完整句子——话要你自己写。' },
 };
 const modeIcons = {
   pattern_query:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>',
@@ -1499,6 +1500,7 @@ const modeIcons = {
   hypothesis_only:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>',
   review:              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
   response_draft:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3.75h9m-9 3.75h5m-7.5-9.75h15a1.5 1.5 0 011.5 1.5v9.75a1.5 1.5 0 01-1.5 1.5h-6.75l-3.75 3v-3H4.5a1.5 1.5 0 01-1.5-1.5V6.75a1.5 1.5 0 011.5-1.5z"/></svg>',
+  daily_connect:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0l-5.25-5.25M12 19.5l5.25-5.25M4.5 12h5.25M14.25 12H19.5"/></svg>',
 };
 
 // =====================================================
@@ -2286,7 +2288,14 @@ function renderActiveSession(){
             ${r.error ? `<div class="reply-err">❌ ${escapeHtml(r.error)}</div>`
                    : (s.mode === 'response_draft'
                        ? renderResponseDraftBlocks(r.reply)
-                       : `<div class="reply-body">${escapeHtml(r.reply)}</div>`)}
+                       : (s.mode === 'daily_connect'
+                           ? `<div class="reply-body">
+                                <div style="margin-bottom:8px;padding:6px 10px;border:1px dashed rgba(234,88,12,.35);background:rgba(255,247,237,.85);border-radius:7px;font-size:11.5px;color:#9a3412;line-height:1.55;">
+                                  ⚠️ 以下是素材参考，不是话术，请自己组织成你的话再发。
+                                </div>
+                                ${escapeHtml(r.reply)}
+                              </div>`
+                           : `<div class="reply-body">${escapeHtml(r.reply)}</div>`))}
             ${r.reply ? `<div class="reply-save"><button onclick='saveReply(${JSON.stringify(r).replace(/'/g,"&#39;")})'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>保存为分析结论</button></div>`:''}
           </div>`;
         }).join('')}
