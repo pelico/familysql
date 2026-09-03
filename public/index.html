@@ -722,22 +722,22 @@
 
   /* ========== 二级分段：事实库的三段生命周期 ========== */
   .facts-subnav {
-    display: flex; gap: 4px;
-    padding: 4px;
+    display: flex; gap: 3px;
+    padding: 3px;
     background: rgba(15,23,42,0.04);
-    border-radius: 12px;
+    border-radius: 11px;
   }
   .facts-subnav button {
     flex: 1 1 auto;
-    padding: 9px 8px;
-    border-radius: 9px;
+    padding: 6px 6px;
+    border-radius: 8px;
     border: none; background: transparent; cursor: pointer;
-    font-size: 12.5px; font-weight: 600;
+    font-size: 12px; font-weight: 600;
     color: #64748b;
-    display: flex; align-items: center; justify-content: center; gap: 5px;
+    display: flex; align-items: center; justify-content: center; gap: 4px;
     transition: all .15s;
   }
-  .facts-subnav button svg { width: 14px; height: 14px; stroke-width: 2.2; }
+  .facts-subnav button svg { width: 13px; height: 13px; stroke-width: 2.2; }
   .facts-subnav button.active {
     background: #fff; color: #4338ca;
     box-shadow: 0 1px 3px rgba(15,23,42,0.06);
@@ -1078,7 +1078,7 @@
 
   <!-- 已保存分析 -->
   <div>
-    <div class="group-title">已保存的分析结论</div>
+    <div class="group-title">分析结论</div>
     <div id="savedAnalyses" class="glass-card"></div>
   </div>
 </section>
@@ -1200,12 +1200,6 @@
 
 <!-- ===== TAB: 事实库（记录 / 回顾 / 模式 三段融合） ===== -->
 <section id="tab-facts" class="tab-panel section-space">
-
-  <!-- 关系说明：一条提示把三段联系说清楚 -->
-  <div class="facts-desc">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
-    <div>工作流：<b>新增事实</b> → 进 <b>回顾列表</b> 补全/校正/搜索 → 沉淀出 <b>行为模式</b>，送进「分析」页交给 AI 推理。<br>三者都在这里，不必再跳 Tab。</div>
-  </div>
 
   <!-- 二级分段导航 -->
   <div class="facts-subnav">
@@ -1412,27 +1406,21 @@
 <!-- ===== TAB: 校准 ===== -->
 <section id="tab-calibration" class="tab-panel section-space">
 
-  <div class="glass-card">
-    <div class="list-row">
-      <div class="icon-wrap g-amber">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
-      </div>
-      <div class="row-body">
-        <div class="row-title">校准仪表盘</div>
-        <div class="row-sub">把"分析时刻"和"分析之后新增事实"并排摆出来，让你自己判断哪些结论需要复检。</div>
-      </div>
-      <button class="btn-ghost" style="padding:7px 11px;font-size:11.5px;" onclick="loadCalibration()">
+  <!-- 结论 vs 新增事实（统计） -->
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;">
+      <span class="group-title" style="margin:0;">结论 vs 新增事实</span>
+      <button class="btn-ghost" style="padding:6px 10px;font-size:11px;" onclick="loadCalibration()">
         <span style="display:inline-flex;align-items:center;gap:4px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:12px;height:12px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
           刷新
         </span>
       </button>
     </div>
-    <div style="padding:4px 16px 16px;">
-      <div id="calStats" class="stat-grid"></div>
-    </div>
+    <div id="calStats" class="stat-grid"></div>
   </div>
 
+  <!-- 分析演进时间线 -->
   <div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;">
       <span class="group-title" style="margin:0;">分析演进时间线</span>
