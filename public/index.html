@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<meta name="x-build-marker" content="20260903-01-ui-refresh--calib-no-hero--facts-subnav-compact--analysis-group-short">
+<meta name="x-build-marker" content="20260903-02-header-dynamic-title--no-duplicate-brand">
 <title>观察笔记 · 事实记录与分析系统</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -971,10 +971,10 @@
           </svg>
         </div>
         <div>
-          <div class="brand-title">观察笔记</div>
-          <div class="brand-sub">
+          <div class="brand-title" id="headerTabTitle">分析</div>
+          <div class="brand-sub" id="headerTabSub">
             <span class="brand-dot"></span>
-            本地存储 · 审计留痕 · 结论可推翻
+            基于事实的会话与结论
           </div>
         </div>
       </div>
@@ -1498,6 +1498,17 @@ window.switchTab = function(tabName, sourceEl) {
   document.querySelectorAll('#sidebarNav .nav-item[data-tab]').forEach(n =>
     n.classList.toggle('active', n.dataset.tab === tabName)
   );
+  // 更新顶部 header 的标题（面包屑定位，避免重复显示「观察笔记」品牌名）
+  const tabHeaderMap = {
+    analysis:    { title: '分析', sub: '基于事实的会话与结论' },
+    facts:       { title: '事实库', sub: '记录 · 回顾 · 行为模式' },
+    calibration: { title: '校准', sub: '分析结论 vs 新增事实' },
+  };
+  const h = tabHeaderMap[tabName];
+  if (h) {
+    document.getElementById('headerTabTitle').textContent = h.title;
+    document.getElementById('headerTabSub').innerHTML = '<span class="brand-dot"></span>' + h.sub;
+  }
   // 切换 panel
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('tab-' + tabName).classList.add('active');
