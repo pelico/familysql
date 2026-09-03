@@ -1123,7 +1123,7 @@
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
               <div id="sessPeoplePicker" style="grid-column:1 / -1;"></div>
-              <input id="sessTags" placeholder="按标签限定（可空）" class="field" style="padding:9px 11px;font-size:12.5px;grid-column:1 / -1;">
+              <input id="sessTags" placeholder="按标签限定（可空）" class="field" list="tagsDatalist" style="padding:9px 11px;font-size:12.5px;grid-column:1 / -1;">
             </div>
             <div id="peopleHint" style="display:none;margin-top:6px;font-size:11px;color:#c2410c;line-height:1.5;">⚠️ 此模式必须填写人物限定，否则复盘参考/历史样本为空。</div>
           </div>
@@ -1362,7 +1362,7 @@
     <div class="glass-card" style="padding:14px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
         <div id="tlFilterPeoplePicker"></div>
-        <input id="tlFilterTags" placeholder="按标签筛选" class="field" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
+        <input id="tlFilterTags" placeholder="按标签筛选" class="field" list="tagsDatalist" style="padding:9px 11px;font-size:12.5px;" oninput="loadTimeline()">
       </div>
       <input id="tlSearch" placeholder="全文搜索..." class="field" style="padding:9px 11px;font-size:12.5px;" oninput="onSearchInput()">
       <div style="margin-top:11px;display:flex;justify-content:space-between;align-items:center;">
@@ -1566,6 +1566,9 @@ async function fetchMetadata(){
     const res = await fetch('/api/metadata'); const d = await res.json();
     state.availablePeople = d.people||[]; state.availableTags = d.tags||[];
     renderDropdowns(); renderChips();
+    // 同步填充全局 tags datalist
+    const dl = document.getElementById('tagsDatalist');
+    if (dl) dl.innerHTML = state.availableTags.map(t=>`<option value="${escapeHtml(t)}">`).join('');
   } catch(e){console.error(e);}
 }
 
@@ -3079,5 +3082,6 @@ loadSessionList();
 loadSavedAnalyses();
 </script>
 <datalist id="peopleDatalist"></datalist>
+<datalist id="tagsDatalist"></datalist>
 </body>
 </html>
