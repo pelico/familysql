@@ -345,17 +345,27 @@ func correctEventHandler(c *gin.Context) {
 	if oldVal != nil {
 		oldValStr = *oldVal
 	}
+	// timestamp 字段做兜底规范化（兼容 datetime-local 输出 / 用户手打多种格式）
+	newVal := body.NewValue
+	if body.Field == "timestamp" && strings.TrimSpace(newVal) != "" {
+		normalized, err := normalizeTimestamp(newVal)
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		newVal = normalized
+	}
 	// 写 corrections 留痕
 	_, err = db.Exec(
 		"INSERT INTO corrections (event_id, field, old_value, new_value, reason) VALUES (?,?,?,?,?)",
-		idStr, body.Field, oldValStr, body.NewValue, body.Reason,
+		idStr, body.Field, oldValStr, newVal, body.Reason,
 	)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	// 更新 events
-	_, err = db.Exec("UPDATE events SET "+body.Field+" = ? WHERE id = ?", body.NewValue, idStr)
+	_, err = db.Exec("UPDATE events SET "+body.Field+" = ? WHERE id = ?", newVal, idStr)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -1125,6 +1135,11 @@ func batchConfirmHandler(c *gin.Context) {
 		ts := c2.Timestamp
 		if strings.TrimSpace(ts) == "" {
 			ts = now
+		} else {
+			// 兜底规范化（AI 可能给出半成品，避免脏格式入库）
+			if normalized, err := normalizeTimestamp(ts); err == nil {
+				ts = normalized
+			}
 		}
 		res, err := db.Exec(
 			`INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status, created_at) VALUES (?,?,?,?,?,?,"reviewed",?)`,

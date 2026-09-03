@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<meta name="x-build-marker" content="20260903-03-header-icon-follows-tab">
+<meta name="x-build-marker" content="20260903-04-timestamp-datetime-picker">
 <title>观察笔记 · 事实记录与分析系统</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -1480,6 +1480,23 @@ const modeIcons = {
 // =====================================================
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function escapeAttr(s){return escapeHtml(s);}
+// ISO8601 → datetime-local 控件格式 YYYY-MM-DDTHH:MM（控件不支持秒/时区）
+// 解析失败原样返回，让用户改；为空返回空串
+function tsToLocalInput(s){
+  if(!s) return '';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return s;
+  const pad = n => String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+// datetime-local 控件格式 → ISO8601 完整 RFC3339（+08:00 时区）
+// 后端 normalizeTimestamp 会再次兜底，前端做一次预格式化减少往返
+function localInputToISO(v){
+  if(!v) return '';
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return v+':00+08:00';
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(v)) return v+'+08:00';
+  return v;
+}
 function fmtTime(ts){try{return new Date(ts).toLocaleString('zh-CN',{hour12:false});}catch(e){return ts||'';}}
 function fmtDay(ts){try{return new Date(ts).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});}catch(e){return ts||'';}}
 function pad(n){return String(n).padStart(2,'0');}
@@ -1880,8 +1897,8 @@ function renderVisionCandidateCard(c, idx){
     ${c.extract_error ? `<div style="font-size:11px;color:#ef4444;margin-bottom:8px;">${escapeHtml(c.extract_error)}</div>`:''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">
       <div>
-        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（AI 不确定，已占位）':''}</div>
-        <input data-k="timestamp" value="${escapeAttr(ts)}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（AI 不确定，已占位，点这里改）':''}</div>
+        <input type="datetime-local" data-k="timestamp" value="${escapeAttr(tsToLocalInput(ts))}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">严重度 1~5</div>
@@ -1921,7 +1938,7 @@ window.submitVisionBatch = async function(){
     const inputs = document.querySelectorAll(`.vis-f[data-idx="${idx}"]`);
     if (inputs.length < 6) return;
     toConfirm.push({
-      timestamp: inputs[0].value,
+      timestamp: localInputToISO(inputs[0].value),
       severity: parseInt(inputs[1].value, 10),
       valence: inputs[2].value,
       people: inputs[3].value,
@@ -1986,7 +2003,7 @@ async function submitAdaptive(e){
   let payload;
   if (state.fullFieldsOpen) {
     // 完整模式：使用所有字段
-    const ts = document.getElementById('timestamp').value + ':00+08:00';
+    const ts = localInputToISO(document.getElementById('timestamp').value);
     payload = {
       timestamp: ts,
       people: state.selectedPeople.join(', '),
@@ -2062,6 +2079,8 @@ async function loadTimeline(){
     const sevLabel = sev>0 ? sevLabels[sev] : '⚠ 未填严重度';
     const card = document.createElement('div');
     card.className = 'ev-card' + (isIncomplete ? ' incomplete' : '');
+    card.setAttribute('data-event-id', e.id);
+    card.setAttribute('data-timestamp', e.timestamp || '');
     card.innerHTML = `
       <div class="ev-meta">
         <span class="ev-idtime">
@@ -2097,28 +2116,49 @@ window.toggleCorrect = function(id){
   box.classList.remove('hidden');
   box.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:8px;">
-      <select id="cff-${id}" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <select id="cff-${id}" class="field" style="padding:9px 11px;font-size:12.5px;" onchange="onCorrectFieldChange(${id})">
         <option value="content">content · 事件详情</option>
         <option value="people">people · 人物</option>
         <option value="tags">tags · 标签</option>
         <option value="timestamp">timestamp · 发生时间</option>
         <option value="severity_self">severity_self · 严重度</option>
       </select>
-      <input id="cfn-${id}" placeholder="修正后的值（timestamp 格式: 2026-01-02T03:04:05+08:00）" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <input id="cfn-${id}" placeholder="修正后的值" class="field" style="padding:9px 11px;font-size:12.5px;">
       <input id="cfr-${id}" placeholder="修正原因（必填，会留痕）" class="field" style="padding:9px 11px;font-size:12.5px;">
       <button class="btn-primary" style="padding:10px 16px;font-size:13px;" onclick="doCorrect(${id})">提交修正</button>
     </div>`;
 };
 window.doCorrect = async function(id){
   const field = document.getElementById('cff-'+id).value;
-  const nv = document.getElementById('cfn-'+id).value;
+  let nv = document.getElementById('cfn-'+id).value;
   const reason = document.getElementById('cfr-'+id).value.trim();
   if (!reason){ alert('必须填写修正原因'); return; }
+  // timestamp 字段：把 datetime-local 输出转 ISO8601（后端还会兜底）
+  if (field === 'timestamp') nv = localInputToISO(nv);
   const res = await fetch(`/api/events/${id}/correct`,{method:'POST',headers:{'Content-Type':'application/json'},
     body: JSON.stringify({field, new_value:nv, reason})});
   const r = await res.json().catch(()=>({}));
   if (!res.ok){ alert('失败: '+(r.error||'')); return; }
   loadTimeline();
+};
+// select 切到 timestamp 时，把 input 切换成 datetime-local 并预填当前值
+window.onCorrectFieldChange = function(id){
+  const field = document.getElementById('cff-'+id).value;
+  const input = document.getElementById('cfn-'+id);
+  if (field === 'timestamp') {
+    input.type = 'datetime-local';
+    input.placeholder = '';
+    // 预填当前事件的 timestamp（从时间轴卡片侧边读取）
+    const card = document.querySelector(`[data-event-id="${id}"]`);
+    if (card) {
+      const cur = card.getAttribute('data-timestamp') || '';
+      if (cur) input.value = tsToLocalInput(cur);
+    }
+  } else {
+    input.type = 'text';
+    input.placeholder = '修正后的值';
+    input.value = '';
+  }
 };
 window.toggleHist = async function(id){
   const box = document.getElementById('hi-'+id);
@@ -2554,8 +2594,8 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">
       <div>
-        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（模型不确定，当前占位，请改）':''}</div>
-        <input data-k="timestamp" value="${escapeAttr(ts)}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
+        <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">时间${uncert?'（模型不确定，当前占位，点这里改）':''}</div>
+        <input type="datetime-local" data-k="timestamp" value="${escapeAttr(tsToLocalInput(ts))}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;${uncert?'border-color:#f59e0b;background:#fffbeb;':''}">
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">严重度 1~5</div>
@@ -2606,7 +2646,7 @@ window.submitCandidate = async function(sid, tIdx, cIdx, status, btn){
   const contentInput = cardEl.querySelector('[data-k="content"]');
   if (!contentInput) { alert('找不到字段'); return; }
   const payload = {
-    timestamp: tsInput.value,
+    timestamp: localInputToISO(tsInput.value),
     severity: parseInt(sevInput.value,10),
     valence: valenceInput.value,
     people: peopleInput.value,

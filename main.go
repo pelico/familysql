@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,6 +34,46 @@ func splitAndTrim(s string) []string {
 		res = append(res, t)
 	}
 	return res
+}
+
+// normalizeTimestamp 把各种常见时间字符串统一为 RFC3339（带 +08:00 时区）
+// 兼容 datetime-local 控件输出、AI 半成品、用户手打多种格式
+// 失败返回 error 让上层报 400，绝不入库脏格式
+func normalizeTimestamp(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", fmt.Errorf("timestamp 为空")
+	}
+	// 1. 已经是 RFC3339 → 原样
+	if _, err := time.Parse(time.RFC3339, s); err == nil {
+		return s, nil
+	}
+	// 2. 标准化：/ → -，空格 → T
+	norm := strings.ReplaceAll(s, "/", "-")
+	norm = strings.ReplaceAll(norm, " ", "T")
+	// 3. 剥离时区后缀（如果有）——后面统一补 +08:00
+	localPart := norm
+	tzMarkers := []string{"Z", "+08:00", "+08", "-08:00"}
+	for _, m := range tzMarkers {
+		if idx := strings.Index(norm, m); idx > strings.Index(norm, "T") && idx > 0 {
+			localPart = norm[:idx]
+			break
+		}
+	}
+	// 4. 尝试常见 layout（去掉时区后的本地部分）
+	layouts := []string{
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02T15",
+		"2006-01-02",
+		"2006-01-02T15:04:05.000",
+	}
+	for _, l := range layouts {
+		if t, err := time.ParseInLocation(l, localPart, time.FixedZone("CST", 8*3600)); err == nil {
+			return t.Format("2006-01-02T15:04:05+08:00"), nil
+		}
+	}
+	return "", fmt.Errorf("timestamp 格式无法识别: %q（期望 RFC3339 或 YYYY-MM-DDTHH:MM）", s)
 }
 
 func initDB() {
@@ -163,18 +204,20 @@ func main() {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
-		t, err := time.Parse(time.RFC3339, e.Timestamp)
+		// 兜底规范化 timestamp（兼容 datetime-local、AI 半成品、用户手打多种格式）
+		normalized, err := normalizeTimestamp(e.Timestamp)
 		if err != nil {
-			c.JSON(400, gin.H{"error": "Must be RFC3339/ISO8601 with offset, e.g. 2026-01-02T03:04:05+08:00"})
+			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
+		e.Timestamp = normalized
 		status := e.Status
 		if status == "" {
 			status = "raw"
 		}
 		res, err := db.Exec(
 			"INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status) VALUES (?,?,?,?,?,?,?)",
-			t.UTC().Format(time.RFC3339), e.People, e.Tags, e.Severity, e.Valence, e.Content, status,
+			e.Timestamp, e.People, e.Tags, e.Severity, e.Valence, e.Content, status,
 		)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
