@@ -1582,6 +1582,8 @@ const state = {
   visionCandidates: [],
   allPeople: [],            // 从 /api/people 加载的规范化人物列表
   peoplePickers: {},       // 容器 ID → { selected: [], multi: bool, onChange: fn }
+  tagPickers: {},          // 容器 ID → { selected: [], multi: bool, onChange: fn }（标签多选）
+  timelineEvents: {},      // 时间轴当前已加载事件：id → 完整事件对象（修正弹窗预填用）
   sessionJudgments: {},    // 归因假设评判：hypothesis_id → { judgment, reason }
 };
 
@@ -1906,6 +1908,76 @@ function addPeoplePickerNew(containerId, val){
 function getPeoplePickerValue(containerId){
   const pk = state.peoplePickers[containerId];
   return pk ? pk.selected.join(', ') : '';
+}
+
+// ---- 通用标签多选器（修正弹窗用；选项取自 state.availableTags，可新增到本地列表）----
+function initTagPicker(containerId, opts){
+  // opts: { multi: bool, initial: [string], onChange: fn, placeholder: string }
+  state.tagPickers[containerId] = {
+    selected: (opts.initial||[]).slice(),
+    multi: opts.multi !== false,
+    onChange: opts.onChange || (()=>{}),
+    placeholder: opts.placeholder || '选择标签…',
+  };
+  renderTagPicker(containerId);
+}
+function renderTagPicker(containerId){
+  const pk = state.tagPickers[containerId];
+  if (!pk) return;
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const selected = pk.selected;
+  const available = state.availableTags.filter(t => !selected.includes(t));
+  const chipsHtml = selected.length === 0
+    ? `<span style="font-size:11px;color:#94a3b8;">${escapeHtml(pk.placeholder)}</span>`
+    : selected.map(t =>
+        `<span class="pill p-emerald">${escapeHtml(t)}<span class="pill-close" onclick="toggleTagPicker('${containerId}','${escapeHtml(t)}')">×</span></span>`
+      ).join('');
+  const dropdownHtml = available.length === 0
+    ? `<option value="">（无更多标签）</option>`
+    : '<option value="">选择已有…</option>' +
+      available.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  el.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;min-height:24px;">${chipsHtml}</div>
+    <div style="display:flex;gap:6px;">
+      <select class="field tag-pick-sel" style="padding:6px 9px;font-size:12px;flex:1;" onchange="onTagPickerSelect('${containerId}', this.value)">
+        ${dropdownHtml}
+      </select>
+      <input class="field tag-pick-new" placeholder="或新增" style="padding:6px 9px;font-size:12px;width:35%;" onkeydown="if(event.key==='Enter'){event.preventDefault();addTagPickerNew('${containerId}',this.value);this.value='';}">
+      <button type="button" class="btn-ghost" style="padding:6px 10px;font-size:12px;" onclick="addTagPickerNew('${containerId}', this.previousElementSibling.value); this.previousElementSibling.value='';">＋</button>
+    </div>`;
+}
+function toggleTagPicker(containerId, tag){
+  const pk = state.tagPickers[containerId];
+  if (!pk) return;
+  pk.selected = pk.selected.filter(x => x !== tag);
+  renderTagPicker(containerId);
+  pk.onChange(pk.selected);
+}
+function onTagPickerSelect(containerId, val){
+  if (!val) return;
+  const pk = state.tagPickers[containerId];
+  if (!pk) return;
+  if (!pk.multi) pk.selected = [];
+  if (!pk.selected.includes(val)) pk.selected.push(val);
+  renderTagPicker(containerId);
+  pk.onChange(pk.selected);
+}
+function addTagPickerNew(containerId, val){
+  val = (val||'').trim();
+  if (!val) return;
+  const pk = state.tagPickers[containerId];
+  if (!pk) return;
+  // 新增到全局标签列表（标签随事件落库，无需单独建库）
+  if (!state.availableTags.includes(val)) {
+    state.availableTags.push(val);
+    const dl = document.getElementById('tagsDatalist');
+    if (dl) dl.innerHTML = state.availableTags.map(t=>`<option value="${escapeHtml(t)}">`).join('');
+  }
+  if (!pk.multi) pk.selected = [];
+  if (!pk.selected.includes(val)) pk.selected.push(val);
+  renderTagPicker(containerId);
+  pk.onChange(pk.selected);
 }
 function renderDropdowns(){
   const pS = document.getElementById('peopleSelect');
@@ -2290,7 +2362,9 @@ async function loadTimeline(){
   }
   events.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
   list.innerHTML = '';
+  state.timelineEvents = {};
   events.forEach(e=>{
+    state.timelineEvents[e.id] = e;
     const peopleArr = (e.people||'').split(',').map(s=>s.trim()).filter(Boolean);
     const tagsArr   = (e.tags||'').split(',').map(s=>s.trim()).filter(Boolean);
     const sev = (e.severity_self||0);
@@ -2343,10 +2417,11 @@ window.toggleCorrect = function(id){
         <option value="timestamp">timestamp · 发生时间</option>
         <option value="severity_self">severity_self · 严重度</option>
       </select>
-      <input id="cfn-${id}" placeholder="修正后的值" class="field" style="padding:9px 11px;font-size:12.5px;">
+      <div id="cfv-${id}"></div>
       <input id="cfr-${id}" placeholder="修正原因（必填，会留痕）" class="field" style="padding:9px 11px;font-size:12.5px;">
       <button class="btn-primary" style="padding:10px 16px;font-size:13px;" onclick="doCorrect(${id})">提交修正</button>
     </div>`;
+  onCorrectFieldChange(id);
 };
 window.doCorrect = async function(id){
   const field = document.getElementById('cff-'+id).value;
@@ -2361,23 +2436,45 @@ window.doCorrect = async function(id){
   if (!res.ok){ alert('失败: '+(r.error||'')); return; }
   loadTimeline();
 };
-// select 切到 timestamp 时，把 input 切换成 datetime-local 并预填当前值
+// 修正值控件：按字段类型渲染对应控件（选项型/文本型），并预填当前值
 window.onCorrectFieldChange = function(id){
   const field = document.getElementById('cff-'+id).value;
-  const input = document.getElementById('cfn-'+id);
+  const vWrap = document.getElementById('cfv-'+id);
+  if (!vWrap) return;
+  const ev = state.timelineEvents[id] || {};
   if (field === 'timestamp') {
-    input.type = 'datetime-local';
-    input.placeholder = '';
-    // 预填当前事件的 timestamp（从时间轴卡片侧边读取）
-    const card = document.querySelector(`[data-event-id="${id}"]`);
-    if (card) {
-      const cur = card.getAttribute('data-timestamp') || '';
-      if (cur) input.value = tsToLocalInput(cur);
-    }
+    // 时间：datetime-local 控件，预填当前值
+    const cur = ev.timestamp || '';
+    vWrap.innerHTML = `<input id="cfn-${id}" type="datetime-local" class="field" style="padding:9px 11px;font-size:12.5px;">`;
+    if (cur) document.getElementById('cfn-'+id).value = tsToLocalInput(cur);
+  } else if (field === 'severity_self') {
+    // 严重度：固定 5 档选项（0=清空/未填），预选当前值
+    const cur = ev.severity_self || 0;
+    const opts = [0,1,2,3,4,5].map(v =>
+      `<option value="${v}" ${v===cur?'selected':''}>${v===0 ? '清空（不设严重度）' : escapeHtml(sevLabels[v])}</option>`
+    ).join('');
+    vWrap.innerHTML = `<select id="cfn-${id}" class="field" style="padding:9px 11px;font-size:12.5px;">${opts}</select>`;
+  } else if (field === 'people') {
+    // 人物：多选 chips，只从既有/新加入选，避免误造新 tag
+    const initSel = (ev.people||'').split(',').map(s=>s.trim()).filter(Boolean);
+    vWrap.innerHTML = `<div id="cfp-${id}"></div><input id="cfn-${id}" type="hidden" value="${escapeAttr(initSel.join(', '))}">`;
+    initPeoplePicker('cfp-'+id, {
+      multi: true,
+      initial: initSel,
+      onChange: (sel)=>{ document.getElementById('cfn-'+id).value = sel.join(', '); }
+    });
+  } else if (field === 'tags') {
+    // 标签：多选 chips，选项来自既有标签，可新增
+    const initSel = (ev.tags||'').split(',').map(s=>s.trim()).filter(Boolean);
+    vWrap.innerHTML = `<div id="cft-${id}"></div><input id="cfn-${id}" type="hidden" value="${escapeAttr(initSel.join(', '))}">`;
+    initTagPicker('cft-'+id, {
+      multi: true,
+      initial: initSel,
+      onChange: (sel)=>{ document.getElementById('cfn-'+id).value = sel.join(', '); }
+    });
   } else {
-    input.type = 'text';
-    input.placeholder = '修正后的值';
-    input.value = '';
+    // content 等自由文本字段：textarea 预填当前内容
+    vWrap.innerHTML = `<textarea id="cfn-${id}" class="field" style="padding:9px 11px;font-size:12.5px;min-height:64px;resize:vertical;" placeholder="修正后的值">${escapeHtml(ev.content||'')}</textarea>`;
   }
 };
 window.toggleHist = async function(id){
