@@ -64,6 +64,8 @@ type Turn struct {
 	AssistantReply string `json:"assistant_reply,omitempty"`
 	UsedEventIDs   []int  `json:"used_event_ids,omitempty"`
 	PromptVersion  string `json:"prompt_version,omitempty"`
+	// response_draft 事后回填标记（true = 已把"实际回复/对方反应"回填进互动模式库）
+	DraftFilled bool `json:"draft_filled,omitempty"`
 }
 
 func normalizeLegacyTurn(t *Turn) {
@@ -234,6 +236,8 @@ type factExtractOutput struct {
 // profileID > 0 时用指定模型（事实提取专用），否则降级用第一个活跃 profile。
 // 输入支持多模态（imageData=data URI 非空时会把图也发过去）。提取失败返回空 candidates + error；调用方可以决定是否忽略。
 func runFactExtract(userText, imageData string, profileID int) ([]FactCandidate, error) {
+	// 兼容两种来源：前端直接传 base64，或传 /api/images/ 路径引用（还原成 data URI 给 LLM）
+	imageData, _ = resolveImageData(imageData)
 	var p LLMProfile
 	if profileID > 0 {
 		pp, err := getProfileByID(profileID)
@@ -618,10 +622,12 @@ func sessionMessagesHandler(c *gin.Context) {
 			msgs = append(msgs, historyMsgs...)
 			// 这一轮 user message：有图片就走多模态结构发给分析模型（如果是视觉模型）
 			if payload.ImageData != "" {
+				// 兼容 base64（旧数据/直传）和 /api/images/ 路径引用（新存储）
+				llmImg, _ := resolveImageData(payload.ImageData)
 				parts := []MultiModalContentPart{{Type: "text", Text: payload.UserContent}}
 				parts = append(parts, MultiModalContentPart{
 					Type:     "image_url",
-					ImageURL: map[string]string{"url": payload.ImageData},
+					ImageURL: map[string]string{"url": llmImg},
 				})
 				msgs = append(msgs, APIMessage{Role: "user", ContentParts: parts})
 			} else {
@@ -713,12 +719,18 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 		}
 		rows.Close()
 	}
-	// 路径 B：FTS 按用户 query 检索相关
+	// 路径 B：按用户 query 检索相关（FTS5 可用时全文检索，否则 LIKE 降级）
 	if userQuery != "" {
-		rows2, err := db.Query(
-			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content "+
-				"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 20", userQuery)
-		if err == nil {
+		var rows2 *sql.Rows
+		var err2 error
+		sel2 := "SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content "
+		if ftsEnabled {
+			rows2, err2 = db.Query(sel2+"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 20", userQuery)
+		} else {
+			like := "%" + userQuery + "%"
+			rows2, err2 = db.Query(sel2+"FROM events WHERE content LIKE ? OR people LIKE ? OR tags LIKE ? ORDER BY id DESC LIMIT 20", like, like, like)
+		}
+		if err2 == nil {
 			for rows2.Next() {
 				var r EventRow
 				rows2.Scan(&r.ID, &r.Timestamp, &r.People, &r.Tags, &r.Severity, &r.Valence, &r.Content)

@@ -983,6 +983,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
           <span>新建会话</span>
         </button>
+        <button class="settings-btn" id="authLockBtn" style="display:none;" onclick="openAuthModal()" title="访问口令">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+        </button>
         <button class="settings-btn" onclick="openSettings()" title="设置">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
         </button>
@@ -1061,6 +1064,36 @@
         </div>
         <div id="peopleManager" style="max-height:260px;overflow:auto;border:1px solid rgba(15,23,42,0.06);border-radius:10px;"></div>
       </div>
+
+      <!-- 数据健康：导出 / 备份 -->
+      <div style="padding-top:12px;border-top:1px dashed rgba(15,23,42,0.08);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+          <div>
+            <div style="font-size:12.5px;font-weight:700;color:#334155;">数据健康（导出 / 备份）</div>
+            <div style="font-size:10.5px;color:#64748b;margin-top:2px;">每天首次启动自动备份一次，保留最近 14 份；也可随时手动导出或备份。</div>
+          </div>
+          <button style="padding:6px 12px;font-size:11px;border:1px solid rgba(15,23,42,0.12);border-radius:7px;background:#fff;color:#475569;cursor:pointer;" onclick="renderDataMgmt()">刷新</button>
+        </div>
+        <div id="dataMgmt"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 访问口令弹窗（全局单例） ===== -->
+<div class="modal-mask" id="authModal" onclick="if(event.target===this)closeAuthModal()">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-head">
+      <div>
+        <div class="modal-head-title">访问口令</div>
+        <div class="modal-head-sub" id="authStatusLine">正在检测…</div>
+      </div>
+      <button class="modal-close" onclick="closeAuthModal()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:17px;height:17px;stroke-width:2.4;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="authBody"></div>
     </div>
   </div>
 </div>
@@ -1070,6 +1103,12 @@
 
 <!-- ===== TAB: 分析（首页） ===== -->
 <section id="tab-analysis" class="tab-panel active section-space">
+
+  <!-- 待回填 · 回复草拟（response_draft 里还没把"实际回复/对方反应"回填互动库的轮次） -->
+  <div id="draftPendingWrap" style="display:none;">
+    <div class="group-title">待回填 · 回复草拟</div>
+    <div id="draftPendingList" class="glass-card"></div>
+  </div>
 
   <!-- 历史会话（默认视图） -->
   <div>
@@ -1407,6 +1446,20 @@
 <!-- ===== TAB: 校准 ===== -->
 <section id="tab-calibration" class="tab-panel section-space">
 
+  <!-- 数据健康（事实库质量与覆盖） -->
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;">
+      <span class="group-title" style="margin:0;">数据健康</span>
+      <button class="btn-ghost" style="padding:6px 10px;font-size:11px;" onclick="loadDataHealth()">
+        <span style="display:inline-flex;align-items:center;gap:4px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:12px;height:12px;stroke-width:2.2;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+          刷新
+        </span>
+      </button>
+    </div>
+    <div id="dataHealth" class="stat-grid"></div>
+  </div>
+
   <!-- 结论 vs 新增事实（统计） -->
   <div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;">
@@ -1500,6 +1553,90 @@ function localInputToISO(v){
 function fmtTime(ts){try{return new Date(ts).toLocaleString('zh-CN',{hour12:false});}catch(e){return ts||'';}}
 function fmtDay(ts){try{return new Date(ts).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});}catch(e){return ts||'';}}
 function pad(n){return String(n).padStart(2,'0');}
+function humanSize(n){ if(!n) return '0 B'; const u=['B','KB','MB','GB']; let i=0; while(n>=1024&&i<3){n/=1024;i++;} return (n>=10||i===0?Math.round(n):n.toFixed(1))+' '+u[i]; }
+
+// =====================================================
+// 访问口令（可选，安全）：统一 fetch 拦截
+//   - 所有 /api/ 请求自动附带 Bearer token（localStorage）
+//   - 401 {auth:true} 时自动弹出登录框
+//   - 后端 APP_TOKEN 未启用时全部透传，单机体验零感知
+//   - 未来新增 /api/ 路由无需改前端，天然受保护（扩展性）
+// =====================================================
+function getStoredToken(){ return localStorage.getItem('app_token') || ''; }
+function setStoredToken(t){ t ? localStorage.setItem('app_token', t) : localStorage.removeItem('app_token'); }
+function imgSrc(p){
+  // 口令开启时 <img> 无法携带 Header，给受保护的图片路径附加 ?token=
+  if(!p || p.indexOf('/api/images/') !== 0) return p;
+  const t = getStoredToken();
+  return t ? p + '?token=' + encodeURIComponent(t) : p;
+}
+(function(){
+  const _fetch = window.fetch;
+  window.fetch = function(input, init){
+    const url = (typeof input === 'string') ? input : (input && input.url) || '';
+    if (url.indexOf('/api/') === 0 && url.indexOf('/api/auth/verify') !== 0) {
+      init = init || {};
+      const t = getStoredToken();
+      if (t) init.headers = Object.assign({}, init.headers, {'Authorization':'Bearer '+t});
+    }
+    return _fetch.call(this, input, init).then(async (res)=>{
+      if (res.status === 401) {
+        try {
+          const d = await res.clone().json();
+          // 已打开登录框时不再重复弹出/重渲染，避免打断用户输入
+          if (d && d.auth && !document.getElementById('authModal').classList.contains('open')) openAuthModal();
+        } catch(e){}
+      }
+      return res;
+    });
+  };
+})();
+
+// 当前登录弹窗已渲染的状态：'disabled' / 'locked'(待输入) / 'unlocked'(已解锁)
+// 状态未变化时跳过重渲染，保证用户输入的口令不被并发 401 清空
+let authRenderedState = '';
+
+// ---- 访问口令 UI ----
+window.openAuthModal = function(){ document.getElementById('authModal').classList.add('open'); renderAuthBody(); };
+window.closeAuthModal = function(){ document.getElementById('authModal').classList.remove('open'); };
+async function renderAuthBody(){
+  const box = document.getElementById('authBody'), line = document.getElementById('authStatusLine');
+  if (!box || !line) return;
+  const res = await fetch('/api/auth/verify').catch(()=>null);
+  const d = res ? await res.json().catch(()=>({enabled:false})) : {enabled:false};
+  const enabled = !!(d && d.enabled);
+  line.textContent = enabled ? '此服务已开启访问口令' : '未启用（本机单机使用）';
+  if (!enabled) {
+    box.innerHTML = '<div style="font-size:12.5px;color:#64748b;line-height:1.8;">当前未启用访问口令，本机单机使用不受影响。<br>如需开启：以环境变量 <code>APP_TOKEN=你的口令</code> 启动服务即可。</div>';
+    return;
+  }
+  if (getStoredToken()) {
+    box.innerHTML = '<div style="font-size:12.5px;color:#64748b;margin-bottom:14px;">已通过口令解锁（口令保存在本浏览器）。</div>' +
+      '<button class="btn-ghost" style="width:100%;padding:11px;" onclick="doAuthLogout()">退出登录（清除口令）</button>';
+    return;
+  }
+  box.innerHTML = '<div style="font-size:12.5px;color:#64748b;margin-bottom:10px;">此服务已开启访问口令，请输入后使用：</div>' +
+    '<input id="authTokenInput" type="password" class="field" style="width:100%;box-sizing:border-box;padding:11px;font-size:13px;" placeholder="访问口令" onkeydown="if(event.key===\'Enter\')doAuthLogin()" autocomplete="off">' +
+    '<button class="btn-primary" style="width:100%;margin-top:10px;padding:11px;" onclick="doAuthLogin()">解锁</button>';
+}
+window.doAuthLogin = async function(){
+  const inp = document.getElementById('authTokenInput');
+  const token = (inp.value||'').trim();
+  if (!token) { inp.focus(); return; }
+  const res = await fetch('/api/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token})});
+  const d = await res.json();
+  if (d && d.ok) { setStoredToken(token); closeAuthModal(); refreshAuthUI(); reloadAll(); }
+  else { alert('口令错误'); inp.select(); }
+};
+window.doAuthLogout = function(){ setStoredToken(''); closeAuthModal(); refreshAuthUI(); reloadAll(); };
+async function refreshAuthUI(){
+  const res = await fetch('/api/auth/verify').catch(()=>null);
+  const d = res ? await res.json().catch(()=>({enabled:false})) : {enabled:false};
+  const btn = document.getElementById('authLockBtn');
+  if (btn) btn.style.display = (d && d.enabled) ? 'inline-flex' : 'none';
+  if (d && d.enabled && !getStoredToken()) openAuthModal(); // 启用口令但没解锁 → 自动弹登录
+}
+function reloadAll(){ checkLLMStatus(); loadSessionList(); loadSavedAnalyses(); loadDraftPending(); loadTimeline(); loadPatterns(); }
 
 // =====================================================
 // Tab 切换（统一侧边栏 + 顶部 Tab 栏）
@@ -1544,7 +1681,7 @@ window.switchTab = function(tabName, sourceEl) {
     tabIndicator.style.transform = `translateX(${2 + idx * (single + 1.5)}px)`;
   }
   // 加载数据
-  if (tabName === 'analysis') { checkLLMStatus(); loadSessionList(); loadSavedAnalyses(); }
+  if (tabName === 'analysis') { checkLLMStatus(); loadSessionList(); loadSavedAnalyses(); loadDraftPending(); }
   if (tabName === 'facts') {
     switchFacts('add', document.querySelector('.facts-subnav [data-fact="add"]'));
     loadTimeline(); loadPatterns();
@@ -2414,7 +2551,7 @@ function renderActiveSession(){
       </div>
       <div class="user-bubble" style="margin-top:6px;">
         ${t.user_content ? escapeHtml(t.user_content) : ''}
-        ${(t.image_data && t.image_data.length > 30) ? `<div style="margin-top:10px;"><img src="${escapeHtml(t.image_data)}" style="max-width:100%;max-height:360px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;"></div>` : ''}
+        ${(t.image_data && t.image_data.length > 30) ? `<div style="margin-top:10px;"><img src="${escapeHtml(imgSrc(t.image_data))}" style="max-width:100%;max-height:360px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;" onerror="this.style.display='none'"></div>` : ''}
       </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:14px;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:5px;">
         <span style="width:2px;height:9px;border-radius:1px;background:linear-gradient(180deg,#6366f1,#8b5cf6);"></span>
@@ -2826,10 +2963,15 @@ const statIcons = {
   newf:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>',
   early:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>',
   latest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+  check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+  warn:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.008v.008H12v-.008z"/></svg>',
+  sev:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z"/></svg>',
+  db:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>',
 };
 const sparkSVG = '<svg viewBox="0 0 40 22" fill="none" stroke="currentColor" preserveAspectRatio="none"><path d="M0 18 L6 14 L12 16 L18 9 L24 11 L30 5 L36 8 L40 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 async function loadCalibration(){
+  loadDataHealth(); // 顶部数据健康卡片
   const [stats, tl] = await Promise.all([
     fetch('/api/analyses/stats').then(r=>r.json()).catch(()=>null),
     fetch('/api/analyses/timeline').then(r=>r.json()).catch(()=>null),
@@ -2926,6 +3068,117 @@ window.recheckToAnalysis = function(aid){
 };
 
 // =====================================================
+// 数据健康（校准页卡片，来自 /api/stats）
+// =====================================================
+async function loadDataHealth(){
+  const box = document.getElementById('dataHealth');
+  if (!box) return;
+  const s = await fetch('/api/stats').then(r=>r.json()).catch(()=>null);
+  if (!s){
+    box.innerHTML = '<div style="grid-column:1/-1;padding:12px;text-align:center;font-size:12px;color:#b91c1c;background:rgba(239,68,68,0.05);border-radius:11px;">数据健康统计加载失败</div>';
+    return;
+  }
+  const incomplete = s.incomplete_events||0;
+  const conflict7 = s.conflict_7d||0;
+  const cards = [
+    {label:'事件总数',     value: s.total_events||0,      icon:'total', cls:'g-indigo'},
+    {label:'已校准',       value: s.reviewed_events||0,   icon:'check', cls:'g-emerald'},
+    {label:'待补充字段',   value: incomplete,             icon:'warn',  cls:'g-rose',  warn: incomplete>0,
+      hint: incomplete>0 ? '人物/标签/强度 有缺失' : '字段完整'},
+    {label:'近7天',        value: s.total_7d||0,          icon:'latest', cls:'g-sky'},
+    {label:'近7天冲突',    value: conflict7,              icon:'sev',   cls:'g-amber', warn: conflict7>0,
+      hint: conflict7>0 ? '有冲突样本可复检' : '无明显冲突样本'},
+    {label:'近30天',       value: s.total_30d||0,         icon:'total', cls:'g-violet'},
+    {label:'数据库大小',   value: humanSize(s.db_size),   icon:'db',    cls:'g-sky'},
+  ];
+  box.innerHTML = cards.map(c=>`
+    <div class="stat-card ${c.warn?'warn':''}">
+      <div class="stat-icon ${c.cls}">${statIcons[c.icon]||''}</div>
+      <div class="stat-spark">${sparkSVG}</div>
+      <div class="stat-label">${escapeHtml(c.label)}</div>
+      <div class="stat-value">${escapeHtml(String(c.value))}</div>
+      ${c.hint?`<div style="font-size:10px;color:#94a3b8;margin-top:4px;">${escapeHtml(c.hint)}</div>`:''}
+    </div>`).join('');
+}
+
+// =====================================================
+// 数据健康（设置弹窗：导出 / 备份）
+// =====================================================
+window.renderDataMgmt = async function(){
+  const box = document.getElementById('dataMgmt');
+  if (!box) return;
+  box.innerHTML = '<div style="padding:12px;text-align:center;color:#94a3b8;font-size:12px;">加载中…</div>';
+  const backups = await fetch('/api/backups').then(r=>r.json()).catch(()=>[]);
+  const list = Array.isArray(backups) ? backups : [];
+  const rows = list.length ? list.map(b=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed rgba(15,23,42,0.06);font-size:11.5px;">
+      <span style="color:#334155;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(b.name)}</span>
+      <span style="color:#94a3b8;white-space:nowrap;">${humanSize(b.size)} · ${fmtTime(b.mtime)}</span>
+    </div>`).join('')
+    : '<div style="padding:8px 0;color:#94a3b8;font-size:11.5px;">还没有备份，点「立即备份」创建第一份。</div>';
+  box.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="btn-primary" style="padding:9px 13px;font-size:11.5px;" onclick="doExport('json')">导出 JSON（全量）</button>
+      <button class="btn-ghost" style="padding:9px 13px;font-size:11.5px;" onclick="doExport('csv')">导出 CSV（事件）</button>
+      <button class="btn-ghost" style="padding:9px 13px;font-size:11.5px;" id="backupNowBtn" onclick="doBackup(this)">立即备份</button>
+    </div>
+    <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:4px;">历史备份（自动保留最近 14 份）</div>
+    <div style="max-height:170px;overflow:auto;">${rows}</div>`;
+};
+window.doExport = async function(fmt){
+  try {
+    const res = await fetch('/api/export?format='+fmt);
+    if (!res.ok){ alert('导出失败'); return; }
+    const blob = await res.blob();
+    const disp = res.headers.get('Content-Disposition')||'';
+    const m = disp.match(/filename="?([^";]+)"?/);
+    const name = m ? m[1] : ('export-'+Date.now()+'.'+(fmt==='csv'?'csv':'json'));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch(e){ alert('导出失败: '+e.message); }
+};
+window.doBackup = async function(btn){
+  btn.disabled = true; const old = btn.textContent; btn.textContent='备份中…';
+  try {
+    const res = await fetch('/api/backup',{method:'POST'});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    alert('✓ 备份完成（'+humanSize(d.size)+'）');
+    renderDataMgmt();
+  } catch(e){ alert('备份失败: '+e.message); }
+  btn.textContent=old; btn.disabled=false;
+};
+
+// =====================================================
+// 待回填 · 回复草拟（易用性：提醒把实际结果回填进互动库）
+// =====================================================
+async function loadDraftPending(){
+  const wrap = document.getElementById('draftPendingWrap');
+  const box = document.getElementById('draftPendingList');
+  if (!wrap || !box) return;
+  const list = await fetch('/api/draft-pending').then(r=>r.json()).catch(()=>[]);
+  if (!list || list.length===0){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  box.innerHTML = list.map(p=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px dashed rgba(15,23,42,0.07);">
+      <div style="min-width:0;">
+        <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:3px;">会话 #${p.session_id} · 第 ${p.turn_idx+1} 轮 · ${fmtTime(p.created_at)}</div>
+        <div style="font-size:12.5px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(p.snippet)}</div>
+      </div>
+      <button class="btn-primary" style="padding:7px 11px;font-size:11px;white-space:nowrap;" onclick="markDraftFilled(${p.session_id},${p.turn_idx},this)">标记已回填</button>
+    </div>`).join('');
+}
+window.markDraftFilled = async function(sid, tIdx, btn){
+  const res = await fetch(`/api/sessions/${sid}/turn/${tIdx}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft_filled:true})});
+  const d = await res.json();
+  if (!res.ok){ alert('操作失败: '+(d.error||'')); return; }
+  loadDraftPending();
+};
+
+// =====================================================
 // 侧边栏切换（小屏）+ 设置弹窗
 // =====================================================
 window.toggleSidebar = function(){
@@ -2955,6 +3208,7 @@ window.openSettings = function(){
   renderProfiles();
   renderModePrompts();
   renderPeopleManager();
+  renderDataMgmt();
 };
 // ---- 人物管理（修复重复/错拼）----
 window.renderPeopleManager = async function(){
@@ -3123,6 +3377,8 @@ fetchAllPeople().then(() => {
 updateSev(1);
 renderModeSelector();
 renderProfilePicker();
+refreshAuthUI();   // 检测访问口令：启用且未解锁时自动弹登录框
+loadDraftPending();
 checkLLMStatus();
 loadSessionList();
 loadSavedAnalyses();

@@ -40,18 +40,25 @@
 **部署：**
 
 ```bash
-# 编译（FTS5 需要 CGO + sqlite_fts5 tag）
+# 编译（FTS5 需要 CGO + sqlite_fts5 tag；没编译进 FTS5 也能跑，事件搜索自动降级为 LIKE）
 CGO_ENABLED=1 go build -tags sqlite_fts5 -o familysql .
 
 # 运行（默认端口 18080，数据写入 ./data/database.db）
 ./familysql
 ```
 
-**环境变量（可选注入模型配置）：**
+**环境变量（均可选）：**
 
-`LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` — 首次启动没任何模型时会作为默认活跃模型注入，之后设置页可以手动再加多个。
+| 变量 | 作用 |
+|---|---|
+| `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` | 首次启动没任何模型时作为默认活跃模型注入，之后设置页可手动再加多个 |
+| `APP_TOKEN` | 访问口令。非空时所有 `/api/*` 需带 `Authorization: Bearer <token>`（或 `X-Auth-Token` / `?token=`），静态页不拦；前端自动弹登录框。空 = 不启用（单机无感） |
+| `PORT` | 监听端口，默认 `18080` |
 
-数据全部在 `./data/`，备份只需拷贝 `data/database.db*`（WAL 模式会有 `db-wal`、`db-shm` 伴生文件，建议用 SQLite `.backup` 命令导出完整快照）。
+数据全部在 `./data/`：
+- `database.db` — 主库（WAL 模式）
+- `images/` — 图片文件（DB 只存 `/api/images/xx` 路径引用）
+- `backups/` — 在线备份快照（每天首次启动自动备份一次，保留最近 14 份）
 
 ---
 
@@ -292,6 +299,10 @@ DB 初始化后检查 `events_fts_config`（SQLite FTS 内建元数据表）里�
 
 一次迁移永久生效，下次启动跳过。
 
+**FTS5 模块缺失时自动降级（工程化保证主功能不挂）：**
+
+`initFTS()` 单独初始化 FTS 虚拟表，不混进基础表 schema——基础表建失败才 panic，FTS 建失败（部分 go-sqlite3 构建未编译 FTS5 模块）只打一行日志并设 `ftsEnabled=false`。此后 `/api/events/search` 和会话上下文检索（`fetchContextEvents` 路径 B）自动改走 `content/people/tags LIKE '%q%'` 等价实现，行为可预期，只是无 BM25 排序。
+
 ### 4.6 多模态消息封装（图片是怎么传给 LLM 的）
 
 前端粘贴/上传图片后，把图片转成 **base64 Data URL**（`data:image/png;base64,xxxx`），放在消息里的 `image_data` 字段发给后端。后端在 `llm.go` 里用统一的消息结构处理：
@@ -351,22 +362,26 @@ APIMessage {
 ```
 ┌─ 侧栏 sidebar-nav (≥1024px 常驻，<1024px 汉堡) ─┐ ┌─ 顶栏 app-header ──────────────────┐
 │ 观察笔记 Logo                                        │ │ ☰汉堡(小屏) Logo 观察笔记    新建会话 ⚙ │
-│ · 分析 / 事实库 / 校准                              │ └─────────────────────────────────────┘
-└─────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────┘ └─────────────────────────────────────┘
 ┌─ 主区 main-wrap ──────────────────────────────────────────────────────────────────┐
 │ Tab 分段器 tab-bar-wrapper (<1024px 出现，侧栏隐藏时作为模块切换)               │
 │                                                                                   │
-│ 分析 Tab: 新建会话卡片 / 历史会话列表 / 已保存分析结论                            │
+│ 分析 Tab: 待回填汇总(若有) / 新建会话卡片 / 历史会话列表 / 已保存分析结论        │
 │ 事实库 Tab: 筛选栏(人物/标签/搜索) + 共 N 条 + 卡片列表(ev-card)                 │
-│ 校准 Tab: 校准仪表盘 + 修正过的事件列表                                            │
+│ 校准 Tab: 数据健康卡片 / 校准仪表盘 + 结论 vs 新增事实 / 修正过的事件列表        │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**可扩展点（目前没做，但数据结构都有了）：**
-- 校准页顶部统计卡片：总事件数 / 各 mode 画像 / prompt 版本 vs 准确率
-- 事实库卡片显示 valence 彩色 pill（目前 DB 已返回，前端可按 valence 色区分）
-- 定期提示："这周只记了 N 条冲突，0 条正面，建议补记缓和瞬间"（基于 valence 分布触发，需要样本积累后才有意义）
-- response_draft 待回填汇总列表（目前只有 turn 挂表单，容易漏）
+**全局机制：**
+
+- **访问口令**：`fetch` 拦截器统一给 `/api/*` 附加 `Authorization: Bearer`（token 存 localStorage）；收到 401 `{auth:true}` 自动弹登录框；图片 `<img>` 无法带 Header，自动给 `/api/images/*` 路径拼 `?token=`。APP_TOKEN 未启用时全部透传，单机体验零感知。
+- **数据管理（设置弹窗）**：导出 JSON 全量 / CSV 事件、立即备份、历史备份列表（自动保留 14 份）。
+- **待回填汇总（分析页）**：扫描所有 `response_draft` 会话，列出未回填的 turn（"标记已回填"一键 PATCH），防止"发完草稿就忘补结果"。
+
+**已实现、此前标注为扩展点的能力（现在都在）：**
+- 校准页数据健康卡片：事件总数 / 已校准 / 待补充字段 / 近 7 天与 30 天分布（含冲突计数）/ 数据库大小 / 人物标签 Top
+- response_draft 待回填汇总列表（见上方分析 Tab）
+- 事实库卡片 valence 彩色 pill（DB 已返回，前端按 valence 区分）
 
 ---
 
@@ -425,10 +440,10 @@ getEffectiveModePrompt(mode)
 ## 十、文件索引（给读代码的人）
 
 ```
-main.go                       路由注册 + DB schema + 迁移（events 加列 / FTS 分词器切换）
+main.go                       路由注册 + DB schema + 迁移（events 加列 / FTS 分词器切换 / FTS 降级）
   · POST /api/events          新增事实（手写）
   · GET /api/events           事件列表（支持 people/tags/severity_min/max/valence 筛选）
-  · GET /api/events/search    FTS全文检索
+  · GET /api/events/search    FTS全文检索（FTS 不可用时自动 LIKE）
   · GET /api/events/:id       单条详情
   · POST /api/events/:id/correct 修正（写 corrections 留痕）
   · GET /api/metadata         人物/标签去重（前端下拉）
@@ -444,12 +459,24 @@ main.go                       路由注册 + DB schema + 迁移（events 加列 
   · POST /api/interaction_patterns/upsert 回填（按person+trigger更新，无则新建）
   · GET/PUT/DELETE /api/mode-prompts[:mode]  模式prompt管理
 
+handlers_extras.go            扩展能力模块（registerExtrasRoutes(r) 一行注册，新路由自动受口令保护）
+  · authMiddleware            访问口令中间件（只拦 /api/*，Bearer/X-Auth-Token/?token 三种传法）
+  · GET/POST /api/auth/verify 口令是否启用 + 登录校验
+  · POST /api/images          图片 base64 → data/images/ 文件（防路径穿越 safeImageName）
+  · GET  /api/images/:name    图片读取（受口令保护，文件名白名单校验）
+  · GET /api/export           导出 JSON 全量 / CSV 事件
+  · POST /api/backup          手动在线备份（VACUUM INTO 一致性快照）
+  · GET /api/backups          历史备份列表（保留最近 14 份，启动时自动备份一次）
+  · GET /api/stats            数据健康统计（总数/已校准/缺字段/7d/30d分布/人物标签Top/DB大小）
+  · GET /api/draft-pending    待回填汇总（response_draft 未回填 turn）
+  · PATCH /api/sessions/:id/turn/:idx  标记回填（draft_filled）
+
 handlers_analyze.go           核心业务逻辑
   · validModes / modeSystemPrompt  5个模式的代码默认prompt
   · getEffectiveModePrompt         DB优先，回退默认
   · factExtractSystemPrompt        事实提取专用prompt（独立，不做推断）
-  · runFactExtract                 事实提取调用（独立profile，可降级）
-  · fetchContextEvents             事实检索（路径A 筛选条件扫30条 ∪ 路径B FTS检索20条）
+  · runFactExtract                 事实提取调用（独立profile，可降级，图片路径还原 data URI）
+  · fetchContextEvents             事实检索（路径A 筛选条件扫30条 ∪ 路径B FTS检索20条，FTS 缺失时 LIKE）
   · samplingBiasNotice             采样偏差检测（≥3条全高严重度时返回声明）
   · buildPatternsContext           response_draft 拼历史互动模式样本
   · sessionMessagesHandler         发送消息主函数（并发提取+分析）
@@ -464,6 +491,11 @@ llm.go                        LLM 调用封装
 
 public/index.html             单页前端（原生 JS，无框架）
   · switchTab / 分段器 / 侧栏汉堡
+  · fetch 拦截器（访问口令自动附加 token + 401 自动弹登录）
+  · openAuthModal / renderAuthBody / doAuthLogin  访问口令登录弹窗
+  · loadDataHealth             校准页数据健康卡片（/api/stats）
+  · renderDataMgmt / doExport / doBackup  设置页导出/备份/历史列表
+  · loadDraftPending / markDraftFilled  待回填汇总 + 一键标记
   · renderSessionList / renderActiveSession / renderTurn
   · renderResponseDraftBlocks     response_draft A/B 分块渲染
   · renderResponseDraftResultForm 回填小表单 + submitDraftResult(upsert)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,10 @@ import (
 )
 
 var db *sql.DB
+
+// ftsEnabled 表示事件全文搜索（FTS5）可用。
+// 某些 go-sqlite3 构建未编译 FTS5 模块，此时事件搜索自动降级为 LIKE 匹配。
+var ftsEnabled bool
 
 // splitAndTrim 按逗号拆分字符串并去除空白，跳过空项
 func splitAndTrim(s string) []string {
@@ -77,19 +80,18 @@ func normalizeTimestamp(s string) (string, error) {
 }
 
 func initDB() {
-	os.MkdirAll("./data", 0755)
+	ensureDataDirs()
 	var err error
 	db, err = sql.Open("sqlite3", "./data/database.db?_foreign_keys=on&_journal_mode=WAL")
 	if err != nil {
 		panic(err)
 	}
-	// W: SQLite 用 write-ahead log 配合 .backup 在线导出最稳妥
+	// 基础表（不含 FTS 虚拟表）：FTS 单独初始化，缺失时自动降级，绝不因单个失败影响其他表
 	schema := `
 	CREATE TABLE IF NOT EXISTS events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, people TEXT, tags TEXT,
 		severity_self INTEGER, valence TEXT, content TEXT NOT NULL, status TEXT DEFAULT 'raw', created_at TEXT DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram');
 	CREATE TABLE IF NOT EXISTS event_links (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, linked_event_id INTEGER, relation TEXT,
 		FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE, FOREIGN KEY(linked_event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -128,29 +130,11 @@ func initDB() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL UNIQUE,
 		created_at TEXT DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
-		INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
-	END;
-	CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
-		INSERT INTO events_fts(events_fts, rowid, content, tags, people) VALUES('delete', old.id, old.content, old.tags, old.people);
-	END;
-	CREATE TRIGGER IF NOT EXISTS events_au AFTER UPDATE ON events BEGIN
-		INSERT INTO events_fts(events_fts, rowid, content, tags, people) VALUES('delete', old.id, old.content, old.tags, old.people);
-		INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
-	END;`
-	db.Exec(schema)
-
-	// ---- FTS 分词器迁移：从默认 unicode61 切换到 trigram（支持中文子串匹配）----
-	// 检查现有 events_fts 的 tokenize 参数，如果不是 trigram 就重建
-	var ftsTokenize string
-	err = db.QueryRow("SELECT tokenize FROM events_fts_config").Scan(&ftsTokenize)
-	if err == nil && ftsTokenize != "trigram" {
-		// 旧表存在且不是 trigram：DROP → 重建 → 回填数据
-		db.Exec("DROP TABLE events_fts")
-		db.Exec(`CREATE VIRTUAL TABLE events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram')`)
-		db.Exec(`INSERT INTO events_fts(rowid, content, tags, people) SELECT id, content, tags, people FROM events`)
+	);`
+	if _, err := db.Exec(schema); err != nil {
+		panic(err)
 	}
+	initFTS()
 
 	// ---- 迁移：从 events.people 逗号分隔字段自动导入已有人物到 people 表 ----
 	peopleRows, _ := db.Query("SELECT DISTINCT people FROM events WHERE people != ''")
@@ -180,12 +164,57 @@ func initDB() {
 	db.Exec(`ALTER TABLE events ADD COLUMN valence TEXT`)
 }
 
+// initFTS 尝试启用事件全文搜索（FTS5 + trigram，支持中文子串匹配）。
+// 部分 go-sqlite3 构建未编译 FTS5 模块，此时捕获错误并降级为 LIKE 搜索（ftsEnabled=false），
+// 保证主功能不受影响；已存在的旧 events_fts 若分词器不是 trigram 则自动重建。
+func initFTS() {
+	ftsEnabled = false
+	if _, err := db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram')"); err != nil {
+		fmt.Printf("[fts] FTS5 不可用，事件搜索降级为 LIKE：%v\n", err)
+		return
+	}
+	// 分词器迁移：旧表不是 trigram 时 DROP → 重建 → 回填
+	var tokenize string
+	if err := db.QueryRow("SELECT tokenize FROM events_fts_config").Scan(&tokenize); err == nil && tokenize != "trigram" {
+		db.Exec("DROP TABLE events_fts")
+		db.Exec(`CREATE VIRTUAL TABLE events_fts USING fts5(content, tags, people, content=events, content_rowid=id, tokenize='trigram')`)
+	}
+	// 触发器：保持 events 与 FTS 索引同步（插入/删除/更新）
+	if _, err := db.Exec(`
+		CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
+			INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
+		END;
+		CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
+			INSERT INTO events_fts(events_fts, rowid, content, tags, people) VALUES('delete', old.id, old.content, old.tags, old.people);
+		END;
+		CREATE TRIGGER IF NOT EXISTS events_au AFTER UPDATE ON events BEGIN
+			INSERT INTO events_fts(events_fts, rowid, content, tags, people) VALUES('delete', old.id, old.content, old.tags, old.people);
+			INSERT INTO events_fts(rowid, content, tags, people) VALUES (new.id, new.content, new.tags, new.people);
+		END;`); err != nil {
+		fmt.Printf("[fts] 触发器创建失败，事件搜索降级为 LIKE：%v\n", err)
+		return
+	}
+	// 回填已有数据
+	if _, err := db.Exec(`INSERT INTO events_fts(rowid, content, tags, people) SELECT id, content, tags, people FROM events`); err != nil {
+		fmt.Printf("[fts] 回填失败，事件搜索降级为 LIKE：%v\n", err)
+		return
+	}
+	ftsEnabled = true
+	fmt.Println("[fts] 事件全文搜索已启用（FTS5/trigram）")
+}
+
 func main() {
 	initDB()
 	r := gin.Default()
+	// 访问口令中间件（APP_TOKEN 非空时保护全部 /api/*；静态页不拦，前端拿到 401 会弹登录）
+	r.Use(authMiddleware)
 	// 静态资源：public/index.html + 其他文件由 Gin 托管
 	r.StaticFS("/public", http.Dir("./public"))
 	r.StaticFile("/", "./public/index.html")
+	// 扩展路由：图片存储 / 导出 / 备份 / 统计 / 回填追踪
+	registerExtrasRoutes(r)
+	// 启动时自动备份（每天首次启动备份一次）
+	autoBackupToday()
 
 	// =====================================================
 	//  事件记录
@@ -291,9 +320,16 @@ func main() {
 			c.JSON(200, []interface{}{})
 			return
 		}
-		rows, err := db.Query(
-			"SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content, events.status "+
-				"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 200", q)
+		sel := "SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content, events.status "
+		var rows *sql.Rows
+		var err error
+		if ftsEnabled {
+			rows, err = db.Query(sel+"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 200", q)
+		} else {
+			// FTS 不可用时的降级搜索：LIKE 匹配
+			like := "%" + q + "%"
+			rows, err = db.Query(sel+"FROM events WHERE content LIKE ? OR people LIKE ? OR tags LIKE ? ORDER BY id DESC LIMIT 200", like, like, like)
+		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -967,7 +1003,7 @@ func main() {
 
 	_ = json.Marshal // 防止未使用 import 告警（后续 handlers_analyze.go 里要用，但这里也 import 了）
 	_ = strconv.Itoa // 同上
-	r.Run(":18080")
+	r.Run(":" + getEnv("PORT", "18080"))
 }
 
 // nullStr 空串转 NULL，避免在 nullable TEXT 列里存空字符串
