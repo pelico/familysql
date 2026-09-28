@@ -174,6 +174,8 @@ func initDB() {
 	db.Exec(`ALTER TABLE sessions ADD COLUMN profile_ids TEXT`)
 	// sessions 表：fact_profile_id 指定事实提取专用模型（空=用第一个活跃模型）
 	db.Exec(`ALTER TABLE sessions ADD COLUMN fact_profile_id INTEGER`)
+	// sessions 表：days_back 会话事实时间范围（0 = 全部时间；>0 = 每次提问只取最近 N 天的记录）
+	db.Exec(`ALTER TABLE sessions ADD COLUMN days_back INTEGER NOT NULL DEFAULT 0`)
 	// events 表：valence 事件性质（conflict/neutral/positive），用于检测采样偏差
 	db.Exec(`ALTER TABLE events ADD COLUMN valence TEXT`)
 }

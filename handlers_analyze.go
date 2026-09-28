@@ -594,6 +594,7 @@ func createSessionHandler(c *gin.Context) {
 		Tags          string `json:"tags"`
 		ProfileIDs    []int  `json:"profile_ids"`     // 选哪些模型并发；空 = 全部活跃
 		FactProfileID *int   `json:"fact_profile_id"` // 事实提取专用模型 ID；nil = 用第一个活跃模型
+		DaysBack      int    `json:"days_back"`       // 事实时间范围（天）；0 = 全部时间
 		FirstMsg      *string `json:"first_message"`
 	}
 	if err := c.ShouldBindJSON(&s); err != nil {
@@ -610,20 +611,20 @@ func createSessionHandler(c *gin.Context) {
 		fid = *s.FactProfileID
 	}
 	res, err := db.Exec(
-		"INSERT INTO sessions (mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
-		s.Mode, s.People, s.Tags, string(profJSON), fid, "[]", now, now,
+		"INSERT INTO sessions (mode, filter_people, filter_tags, profile_ids, fact_profile_id, days_back, messages, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+		s.Mode, s.People, s.Tags, string(profJSON), fid, s.DaysBack, "[]", now, now,
 	)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	id, _ := res.LastInsertId()
-	c.JSON(201, gin.H{"id": id, "mode": s.Mode})
+	c.JSON(201, gin.H{"id": id, "mode": s.Mode, "days_back": s.DaysBack})
 }
 
 func listSessionsHandler(c *gin.Context) {
 	rows, err := db.Query(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100")
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, days_back, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100")
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -631,14 +632,15 @@ func listSessionsHandler(c *gin.Context) {
 	defer rows.Close()
 	var res []map[string]interface{}
 	for rows.Next() {
-		var id int
+		var id, daysBack int
 		var factPID sql.NullInt64
 		var mode, fp, ft, profs, createdAt, updatedAt *string
-		rows.Scan(&id, &mode, &fp, &ft, &profs, &factPID, &createdAt, &updatedAt)
+		rows.Scan(&id, &mode, &fp, &ft, &profs, &factPID, &daysBack, &createdAt, &updatedAt)
 		row := map[string]interface{}{
 			"id": id,
 			"mode": sval(mode), "filter_people": sval(fp), "filter_tags": sval(ft),
 			"profile_ids": parseJSONInts(sval(profs)),
+			"days_back":   daysBack,
 			"created_at": sval(createdAt), "updated_at": sval(updatedAt),
 		}
 		if factPID.Valid {
@@ -666,13 +668,13 @@ func parseJSONInts(s string) []int {
 }
 
 func getSessionHandler(c *gin.Context) {
-	var id int
+	var id, daysBack int
 	var factPID sql.NullInt64
 	var mode, fp, ft, profs, messagesJSON, createdAt, updatedAt *string
 	err := db.QueryRow(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages, created_at, updated_at FROM sessions WHERE id = ?",
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, days_back, messages, created_at, updated_at FROM sessions WHERE id = ?",
 		c.Param("id"),
-	).Scan(&id, &mode, &fp, &ft, &profs, &factPID, &messagesJSON, &createdAt, &updatedAt)
+	).Scan(&id, &mode, &fp, &ft, &profs, &factPID, &daysBack, &messagesJSON, &createdAt, &updatedAt)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
@@ -688,6 +690,7 @@ func getSessionHandler(c *gin.Context) {
 		"id": id,
 		"mode": sval(mode), "filter_people": sval(fp), "filter_tags": sval(ft),
 		"profile_ids": parseJSONInts(sval(profs)),
+		"days_back":   daysBack,
 		"turns":       turns,
 		"created_at":  sval(createdAt), "updated_at": sval(updatedAt),
 	}
@@ -715,13 +718,13 @@ func sessionMessagesHandler(c *gin.Context) {
 	payload.HadImage = payload.HadImage || payload.ImageData != ""
 
 	// 读会话
-	var sid int
+	var sid, daysBack int
 	var factProfileID sql.NullInt64
 	var mode, filterPeople, filterTags, profileIDsJSON, messagesJSON *string
 	err := db.QueryRow(
-		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, messages FROM sessions WHERE id = ?",
+		"SELECT id, mode, filter_people, filter_tags, profile_ids, fact_profile_id, days_back, messages FROM sessions WHERE id = ?",
 		idStr,
-	).Scan(&sid, &mode, &filterPeople, &filterTags, &profileIDsJSON, &factProfileID, &messagesJSON)
+	).Scan(&sid, &mode, &filterPeople, &filterTags, &profileIDsJSON, &factProfileID, &daysBack, &messagesJSON)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
@@ -739,8 +742,8 @@ func sessionMessagesHandler(c *gin.Context) {
 		}
 	}
 
-	// 1) 检索事实（按会话筛选 + 用户 query 做 FTS 检索取并集，最多 30 条）
-	events := fetchContextEvents(fpV, ftV, payload.UserContent, 30)
+	// 1) 检索事实（按会话筛选 + 时间范围 + 用户 query 做 FTS 检索取并集，最多 30 条）
+	events := fetchContextEvents(fpV, ftV, payload.UserContent, 30, daysBack)
 	usedEventIDs := make([]int, 0, len(events))
 	for _, e := range events {
 		usedEventIDs = append(usedEventIDs, e.ID)
@@ -914,9 +917,15 @@ func sessionMessagesHandler(c *gin.Context) {
 // =====================================================
 
 // fetchContextEvents 同时做"按筛选条件全量 + FTS 相关性"检索，去重后限 topN。
-func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []EventRow {
+func fetchContextEvents(filterPeople, filterTags, userQuery string, topN, daysBack int) []EventRow {
 	rowsMap := map[int]EventRow{}
-	// 路径 A：按筛选条件扫最近 30 条
+	daysClause := ""
+	daysArg := ""
+	if daysBack > 0 {
+		daysClause = " AND datetime(timestamp) >= datetime('now', ?)"
+		daysArg = fmt.Sprintf("-%d days", daysBack)
+	}
+	// 路径 A：按筛选条件扫最近 30 条（可再限定时间范围）
 	qa := "SELECT id, timestamp, people, tags, severity_self, valence, content FROM events WHERE 1=1"
 	var args []interface{}
 	if filterPeople != "" {
@@ -926,6 +935,10 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 	if filterTags != "" {
 		qa += " AND tags LIKE ?"
 		args = append(args, "%"+filterTags+"%")
+	}
+	if daysClause != "" {
+		qa += daysClause
+		args = append(args, daysArg)
 	}
 	qa += " ORDER BY datetime(timestamp) DESC LIMIT 30"
 	rows, err := db.Query(qa, args...)
@@ -937,16 +950,28 @@ func fetchContextEvents(filterPeople, filterTags, userQuery string, topN int) []
 		}
 		rows.Close()
 	}
-	// 路径 B：按用户 query 检索相关（FTS5 可用时全文检索，否则 LIKE 降级）
+	// 路径 B：按用户 query 检索相关（FTS5 可用时全文检索，否则 LIKE 降级；同样限定时间范围）
 	if userQuery != "" {
 		var rows2 *sql.Rows
 		var err2 error
 		sel2 := "SELECT events.id, events.timestamp, events.people, events.tags, events.severity_self, events.valence, events.content "
 		if ftsEnabled {
-			rows2, err2 = db.Query(sel2+"FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ? ORDER BY rank LIMIT 20", userQuery)
+			qb := sel2 + "FROM events JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts MATCH ?"
+			argsB := []interface{}{userQuery}
+			if daysClause != "" {
+				qb += " AND datetime(events.timestamp) >= datetime('now', ?)"
+				argsB = append(argsB, daysArg)
+			}
+			rows2, err2 = db.Query(qb+" ORDER BY rank LIMIT 20", argsB...)
 		} else {
 			like := "%" + userQuery + "%"
-			rows2, err2 = db.Query(sel2+"FROM events WHERE content LIKE ? OR people LIKE ? OR tags LIKE ? ORDER BY id DESC LIMIT 20", like, like, like)
+			qb := sel2 + "FROM events WHERE content LIKE ? OR people LIKE ? OR tags LIKE ?"
+			argsL := []interface{}{like, like, like}
+			if daysClause != "" {
+				qb += " AND datetime(timestamp) >= datetime('now', ?)"
+				argsL = append(argsL, daysArg)
+			}
+			rows2, err2 = db.Query(qb+" ORDER BY id DESC LIMIT 20", argsL...)
 		}
 		if err2 == nil {
 			for rows2.Next() {
