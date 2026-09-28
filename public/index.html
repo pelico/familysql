@@ -744,6 +744,8 @@
   @media (min-width: 640px) {
     .modal-mask { align-items: center; }
     .modal { border-radius: 18px; max-height: 82vh; }
+    /* 新建会话弹窗加宽后，模式卡片改为 3 列，横向展示更多 */
+    #newSessionModal .mode-grid { grid-template-columns: repeat(3, 1fr); }
   }
   .modal-head {
     padding: 15px 16px; border-bottom: 1px solid rgba(15,23,42,0.06);
@@ -1188,7 +1190,7 @@
 
 <!-- 新建会话弹窗 -->
 <div class="modal-mask" id="newSessionModal" onclick="if(event.target===this)closeNewSessionModal()">
-  <div class="modal" style="max-width:520px;">
+  <div class="modal" style="max-width:720px;">
     <div class="modal-head">
       <div>
         <div class="modal-head-title">新建分析会话</div>
