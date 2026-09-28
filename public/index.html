@@ -830,6 +830,7 @@
   .session-fs-header {
     display: flex; align-items: center; gap: 12px;
     padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top));
     background: #fff;
     border-bottom: 1px solid rgba(15,23,42,0.06);
     flex-shrink: 0;
@@ -852,6 +853,7 @@
   }
   .session-fs-input {
     padding: 14px 16px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
     background: #fff;
     border-top: 1px solid rgba(15,23,42,0.06);
     flex-shrink: 0;
