@@ -1716,6 +1716,9 @@ const tabIndicator = document.getElementById('tabIndicator');
 const tabIdxMap = { analysis: 0, facts: 1, calibration: 2 };
 
 window.switchTab = function(tabName, sourceEl) {
+  // 正在查看历史会话时切换模块：自动收起会话层，避免"必须先返回才能切换"
+  const sessBox = document.getElementById('activeSessionBox');
+  if (sessBox && sessBox.classList.contains('open')) closeSession();
   // 更新 tab-btn 状态
   tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
   // 更新侧边栏 nav-item 状态
