@@ -856,9 +856,19 @@
     border-top: 1px solid rgba(15,23,42,0.06);
     flex-shrink: 0;
   }
+  /* 会话页内容统一到与 main-wrap / header 相同的内容宽度（1000px，大屏 1200px） */
+  .fs-content {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
 
-  @media (min-width: 1200px) {
+  @media (min-width: 1024px) {
     .session-fullscreen { left: 200px; }
+    .fs-content { max-width: calc(1000px + 200px); }
+    .session-fs-body { padding: 24px 32px; }
+    .session-fs-input { padding: 14px 32px; }
+    .session-fs-header { padding: 12px 32px; }
   }
 
   /* ========== 侧边栏导航（桌面端） ========== */
@@ -946,7 +956,11 @@
       padding-left: 32px;
       padding-right: 32px;
     }
-    .header-inner { max-width: none; }
+    .header-inner {
+      max-width: calc(1000px + 200px);
+      padding-left: 32px;
+      padding-right: 32px;
+    }
     .tab-bar-wrapper { display: none !important; }
     .hamburger-btn { display: none !important; }
   }
@@ -1251,19 +1265,21 @@
 <!-- 活跃会话 · 全屏视图 -->
 <div class="session-fullscreen" id="activeSessionBox">
   <div class="session-fs-header">
-    <button class="session-fs-back" onclick="closeSession()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
-    </button>
-    <div style="flex:1;min-width:0;">
-      <div class="session-fs-title" id="activeSessionTitle">—</div>
-      <div class="session-fs-sub" id="activeSessionSub">—</div>
+    <div class="fs-content" style="display:flex;align-items:center;gap:12px;">
+      <button class="session-fs-back" onclick="closeSession()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+      </button>
+      <div style="flex:1;min-width:0;">
+        <div class="session-fs-title" id="activeSessionTitle">—</div>
+        <div class="session-fs-sub" id="activeSessionSub">—</div>
+      </div>
     </div>
   </div>
   <div class="session-fs-body">
-    <div id="turnsList" style="display:flex;flex-direction:column;gap:18px;max-width:720px;margin:0 auto;"></div>
+    <div id="turnsList" class="fs-content" style="display:flex;flex-direction:column;gap:18px;"></div>
   </div>
   <div class="session-fs-input">
-    <div style="max-width:720px;margin:0 auto;">
+    <div class="fs-content">
       <div id="imgPreview" style="display:none;position:relative;margin-bottom:10px;">
         <img id="imgPreviewImg" style="max-height:140px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);object-fit:contain;background:#fff;">
         <button class="btn-ghost" style="position:absolute;top:6px;right:6px;padding:4px 7px;font-size:11px;background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.08);" onclick="clearImage()">移除</button>
