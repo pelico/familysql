@@ -49,15 +49,28 @@ type PerProfileReply struct {
 	Error         string `json:"error,omitempty"`
 }
 
+// Hypothesis 是一条归因假设（causal_query 模式产出）。刻意只描述"发生了什么"层面上的
+// 可能机制 + 证据 + 反证条件，禁止人格定性；是否成立由用户在卡片上评判（judgments 表沉淀）。
+type Hypothesis struct {
+	Summary          string `json:"summary"`            // 假设一句话（假设句式，可含机制）
+	EvidenceEventIDs []int  `json:"evidence_event_ids"` // 证据链：引用的 event id
+	Confidence       string `json:"confidence"`         // low / medium / high
+	ConfidenceReason string `json:"confidence_reason"`  // 置信度依据（条数 + 时间跨度）
+	CounterCondition string `json:"counter_condition"`  // 反证条件：发生什么则此假设不成立
+	Alternative      string `json:"alternative"`        // 至少一个替代解释
+}
+
 // Turn 是一轮完整问答。Replies 存多模型回复（并行返回）。
 // Candidates 是本轮（从用户输入+图片里）提取出的待审核事实。
 // ImageData 存 base64 data URI（仅最新一轮前端会显示，历史轮不重复存以节省空间）。
+// Hypotheses 是 causal_query 模式产出的结构化归因假设（前端渲染成可评判卡片）。
 type Turn struct {
 	UserContent    string            `json:"user_content"`
 	HadImage       bool              `json:"had_image"`
 	ImageData      string            `json:"image_data,omitempty"` // data:image/jpeg;base64,...
 	Replies        []PerProfileReply `json:"replies"`
 	Candidates     []FactCandidate   `json:"candidates,omitempty"`
+	Hypotheses     []Hypothesis      `json:"hypotheses,omitempty"`
 	CreatedAt      string            `json:"created_at"`
 
 	// 兼容旧数据（历史 Turn 只有 AssistantReply / UsedEventIDs / PromptVersion）
@@ -91,6 +104,7 @@ var validModes = map[string]bool{
 	"review":              true,
 	"response_draft":      true,
 	"daily_connect":       true,
+	"causal_query":        true, // 归因假设：提问"为什么" → 生成可评判的归因假设
 }
 
 // modeSystemPrompt 按 mode 给出系统提示（prompt_version = "1.0" 固定版本，后续升级可记录）
@@ -162,6 +176,34 @@ func modeSystemPrompt(mode string) string {
 - 禁止生成任何可以原样复制发送的内容
 - 如果近30天没有任何正面/中性事件记录，明确写"暂无近期正面互动记录，可参考行为模式样本或单纯表达陪伴"
 - 如果没有历史互动模式样本，也如实写"暂无样本"`
+	case "causal_query":
+		return `你是家庭/人际归因假设助理。用户提出"为什么"类问题，你只能基于下方事实集合生成可被检验的归因假设，绝不产出关系诊断。
+
+严格规则：
+(1) 只依据下方事实集合作答；每一条假设必须有证据链（evidence_event_ids 引用事实的 #id）。
+(2) 看不到的屏幕外背景、对方动机、长期情绪属于"记录之外"，一律不允许当作证据，只允许在 alternative 里提示"可能还受记录之外因素影响"。
+(3) 置信度不是自我感觉，必须基于引用的 event 数量和时间跨度：
+    - 单一事件或同一天内的事件 → low
+    - 3条以上、跨至少3天 → medium
+    - 5条以上、跨至少1周 → high
+    confidence_reason 注明依据，如"3条事件、跨3天、来自同一互动"。
+(4) 禁止人格定性、禁止对动机做确定性归因（"想控制""故意"这类词不用），一律使用"可能""倾向于"。
+(5) 每条假设必须给 counter_condition（发生什么则此假设可信度下降）和至少一个 alternative（替代解释）。
+(6) 最多3条假设；证据不足时 hypotheses 返回空数组，把原因写进 uncertainty。
+(7) 输出必须是严格 JSON，格式：
+{
+  "hypotheses": [
+    {
+      "summary": "假设一句话（含可能的机制，假设句式）",
+      "evidence_event_ids": [1, 2, 3],
+      "confidence": "low | medium | high",
+      "confidence_reason": "置信度依据",
+      "counter_condition": "反证条件",
+      "alternative": "替代解释"
+    }
+  ],
+  "uncertainty": "整体不确定性总结（数据范围、缺失信息、对结论的影响）"
+}`
 	default:
 		return `你是客观的事实整理助理。只做事实汇总，不下定性结论。每条结论标注对应 event_id。`
 	}
@@ -230,6 +272,139 @@ type factExtractOutput struct {
 		Content            string `json:"content"`
 	} `json:"facts"`
 	Notes string `json:"notes"`
+}
+
+// hypothesisExtractOutput 是 causal_query 模式的结构化输出。
+// 刻意让"假设生成"走一次结构化调用，前端才能渲染成可评判的卡片。
+type hypothesisExtractOutput struct {
+	Hypotheses []Hypothesis `json:"hypotheses"`
+	Uncertainty string      `json:"uncertainty"`
+}
+
+// normalizeConfidence 把 LLM 可能给出的各种写法归一化为 low/medium/high。
+func normalizeConfidence(c string) string {
+	switch strings.ToLower(strings.TrimSpace(c)) {
+	case "low", "low-1", "1":
+		return "low"
+	case "medium", "mid", "middle", "medium-2", "2", "中":
+		return "medium"
+	case "high", "high-3", "3":
+		return "high"
+	}
+	return "low"
+}
+
+func confidenceLabel(c string) string {
+	switch normalizeConfidence(c) {
+	case "medium":
+		return "中"
+	case "high":
+		return "高"
+	}
+	return "低"
+}
+
+func judgmentLabel(j string) string {
+	switch j {
+	case "accepted":
+		return "已采纳"
+	case "rejected":
+		return "附反例"
+	case "doubtful":
+		return "存疑"
+	}
+	return j
+}
+
+// filterKnownEventIDs 只保留确实出现在本次事实集合里的 event id，且去重、限长，
+// 防止 LLM 编造不存在的引用号。
+func filterKnownEventIDs(ids []int, known []int) []int {
+	knownSet := map[int]struct{}{}
+	for _, x := range known {
+		knownSet[x] = struct{}{}
+	}
+	seen := map[int]struct{}{}
+	out := []int{}
+	for _, x := range ids {
+		if _, ok := knownSet[x]; !ok {
+			continue
+		}
+		if _, dup := seen[x]; dup {
+			continue
+		}
+		seen[x] = struct{}{}
+		out = append(out, x)
+	}
+	if len(out) > 12 {
+		out = out[:12]
+	}
+	return out
+}
+
+// renderHypothesesText 把结构化假设渲染成对话流里可读的文本回复。
+func renderHypothesesText(hs []Hypothesis, uncertainty string) string {
+	if len(hs) == 0 {
+		if strings.TrimSpace(uncertainty) != "" {
+			return "证据不足，暂无法形成归因假设。" + uncertainty
+		}
+		return "证据不足，暂无法形成归因假设。"
+	}
+	var sb strings.Builder
+	for i, h := range hs {
+		fmt.Fprintf(&sb, "【假设 #%d】%s\n", i+1, strings.TrimSpace(h.Summary))
+		if len(h.EvidenceEventIDs) > 0 {
+			fmt.Fprintf(&sb, "证据链：%v\n", h.EvidenceEventIDs)
+		}
+		fmt.Fprintf(&sb, "置信度：%s（%s）\n", confidenceLabel(h.Confidence), strings.TrimSpace(h.ConfidenceReason))
+		if strings.TrimSpace(h.CounterCondition) != "" {
+			fmt.Fprintf(&sb, "反证条件：%s\n", strings.TrimSpace(h.CounterCondition))
+		}
+		if strings.TrimSpace(h.Alternative) != "" {
+			fmt.Fprintf(&sb, "替代解释：%s\n", strings.TrimSpace(h.Alternative))
+		}
+		sb.WriteString("\n")
+	}
+	if strings.TrimSpace(uncertainty) != "" {
+		fmt.Fprintf(&sb, "不确定性：%s\n", strings.TrimSpace(uncertainty))
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+// buildJudgmentsContext 读取本会话已评判的归因假设（用户判断沉淀的个人化归因模型），
+// 拼成一段 system 上下文，供后续"为什么"提问参考——这是飞轮的关键一环。
+func buildJudgmentsContext(sid int) string {
+	rows, err := db.Query(
+		"SELECT hypothesis_id, judgment, reason, summary FROM hypothesis_judgments WHERE session_id=? ORDER BY id ASC", sid)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var sb strings.Builder
+	cnt := 0
+	for rows.Next() {
+		var hid, judgment, summary string
+		var reasonP *string
+		if err := rows.Scan(&hid, &judgment, &reasonP, &summary); err != nil {
+			continue
+		}
+		reason := ""
+		if reasonP != nil {
+			reason = *reasonP
+		}
+		cnt++
+		if cnt == 1 {
+			sb.WriteString("\n\n【该会话已评判的归因假设（用户判断已沉淀为个人归因模型，新假设应与之保持一致或被新证据推翻）】\n")
+		}
+		line := fmt.Sprintf("- [%s] %s: %s", judgmentLabel(judgment), hid, strings.TrimSpace(summary))
+		if strings.TrimSpace(reason) != "" {
+			line += "（用户理由: " + strings.TrimSpace(reason) + "）"
+		}
+		sb.WriteString(line + "\n")
+	}
+	if cnt == 0 {
+		return ""
+	}
+	return sb.String()
 }
 
 // runFactExtract 调用指定 profile 对本轮用户输入做事实提取。
@@ -586,6 +761,10 @@ func sessionMessagesHandler(c *gin.Context) {
 		systemMsg.Content += buildRecentPositiveContext(fpV)
 		systemMsg.Content += buildPatternsContext(fpV)
 	}
+	// causal_query 模式：拼本会话已评判的归因假设（个人归因模型，飞轮上下文）
+	if modeV == "causal_query" {
+		systemMsg.Content += buildJudgmentsContext(sid)
+	}
 
 	historyMsgs := buildHistoryMessages(turns, 6, modeV)
 
@@ -605,44 +784,82 @@ func sessionMessagesHandler(c *gin.Context) {
 		return
 	}
 
-	// 4) 两条独立并发路径：
-	//    A. 正常分析回复（按所选模型并行）
-	//    B. 事实提取（只跑一次，使用第一个活跃profile）
-	replies := make([]PerProfileReply, len(profiles))
+	// 4) 回复生成路径 + 事实提取路径（事实提取只跑一次，两条路径并发）
+	//    因果归因（causal_query）走"单次结构化调用"，产出可评判的假设卡片；
+	//    其余模式保持"按所选模型并行"。
+	replies := make([]PerProfileReply, 0, len(profiles))
+	var hypotheses []Hypothesis
 	var candidates []FactCandidate
 	var extractErrStr string
 	var wg sync.WaitGroup
 
 	// Path A
-	for i, p := range profiles {
-		wg.Add(1)
-		go func(idx int, prof LLMProfile) {
-			defer wg.Done()
-			msgs := []APIMessage{systemMsg}
-			msgs = append(msgs, historyMsgs...)
-			// 这一轮 user message：有图片就走多模态结构发给分析模型（如果是视觉模型）
-			if payload.ImageData != "" {
-				// 兼容 base64（旧数据/直传）和 /api/images/ 路径引用（新存储）
-				llmImg, _ := resolveImageData(payload.ImageData)
-				parts := []MultiModalContentPart{{Type: "text", Text: payload.UserContent}}
-				parts = append(parts, MultiModalContentPart{
-					Type:     "image_url",
-					ImageURL: map[string]string{"url": llmImg},
-				})
-				msgs = append(msgs, APIMessage{Role: "user", ContentParts: parts})
-			} else {
-				msgs = append(msgs, APIMessage{Role: "user", Content: payload.UserContent})
+	if modeV == "causal_query" {
+		// 归因假设：用第一个选中的模型做一次结构化 JSON 调用。
+		// 假设内容同时渲染成对话里的文本回复 + 存进 Turn.Hypotheses 供卡片渲染。
+		p := profiles[0]
+		msgs := []APIMessage{systemMsg}
+		msgs = append(msgs, historyMsgs...)
+		if payload.ImageData != "" {
+			llmImg, _ := resolveImageData(payload.ImageData)
+			parts := []MultiModalContentPart{{Type: "text", Text: payload.UserContent}}
+			parts = append(parts, MultiModalContentPart{
+				Type:     "image_url",
+				ImageURL: map[string]string{"url": llmImg},
+			})
+			msgs = append(msgs, APIMessage{Role: "user", ContentParts: parts})
+		} else {
+			msgs = append(msgs, APIMessage{Role: "user", Content: payload.UserContent})
+		}
+		var out hypothesisExtractOutput
+		hypoErr := callLLMForJSON(p, msgs, &out)
+		r := PerProfileReply{
+			ProfileID: p.ID, ProfileName: p.Name, Model: p.Model,
+			UsedEventIDs: usedEventIDs, PromptVersion: promptVersion,
+		}
+		if hypoErr != nil {
+			r.Error = hypoErr.Error()
+		} else {
+			hypotheses = out.Hypotheses
+			for i := range hypotheses {
+				hypotheses[i].Confidence = normalizeConfidence(hypotheses[i].Confidence)
+				hypotheses[i].EvidenceEventIDs = filterKnownEventIDs(hypotheses[i].EvidenceEventIDs, usedEventIDs)
 			}
-			reply, err := callLLMByProfile(prof, msgs)
-			r := PerProfileReply{
-				ProfileID: prof.ID, ProfileName: prof.Name, Model: prof.Model,
-				Reply: reply, UsedEventIDs: usedEventIDs, PromptVersion: promptVersion,
-			}
-			if err != nil {
-				r.Error = err.Error()
-			}
-			replies[idx] = r
-		}(i, p)
+			r.Reply = renderHypothesesText(hypotheses, out.Uncertainty)
+		}
+		replies = append(replies, r)
+	} else {
+		replies = make([]PerProfileReply, len(profiles))
+		for i, p := range profiles {
+			wg.Add(1)
+			go func(idx int, prof LLMProfile) {
+				defer wg.Done()
+				msgs := []APIMessage{systemMsg}
+				msgs = append(msgs, historyMsgs...)
+				// 这一轮 user message：有图片就走多模态结构发给分析模型（如果是视觉模型）
+				if payload.ImageData != "" {
+					// 兼容 base64（旧数据/直传）和 /api/images/ 路径引用（新存储）
+					llmImg, _ := resolveImageData(payload.ImageData)
+					parts := []MultiModalContentPart{{Type: "text", Text: payload.UserContent}}
+					parts = append(parts, MultiModalContentPart{
+						Type:     "image_url",
+						ImageURL: map[string]string{"url": llmImg},
+					})
+					msgs = append(msgs, APIMessage{Role: "user", ContentParts: parts})
+				} else {
+					msgs = append(msgs, APIMessage{Role: "user", Content: payload.UserContent})
+				}
+				reply, err := callLLMByProfile(prof, msgs)
+				r := PerProfileReply{
+					ProfileID: prof.ID, ProfileName: prof.Name, Model: prof.Model,
+					Reply: reply, UsedEventIDs: usedEventIDs, PromptVersion: promptVersion,
+				}
+				if err != nil {
+					r.Error = err.Error()
+				}
+				replies[idx] = r
+			}(i, p)
+		}
 	}
 
 	// Path B：事实提取（可通过前端开关跳过）
@@ -677,6 +894,7 @@ func sessionMessagesHandler(c *gin.Context) {
 		ImageData:   payload.ImageData,
 		Replies:     replies,
 		Candidates:  candidates,
+		Hypotheses:  hypotheses,
 		CreatedAt:   now,
 	}
 	turns = append(turns, turn)
@@ -1164,4 +1382,109 @@ func batchConfirmHandler(c *gin.Context) {
 		ids = append(ids, lid)
 	}
 	c.JSON(200, gin.H{"ok": true, "inserted_ids": ids})
+}
+
+// =====================================================
+//  归因假设评判（causal_query）：采纳 / 附反例 / 存疑 → 沉淀个人归因模型
+// =====================================================
+
+// submitJudgmentHandler 新增或覆盖一条评判。
+// body: { turn_idx, hypo_idx, judgment, reason }
+// hypothesis_id 由 turn_idx + hypo_idx 推导（"t{turn}-h{idx}"），提交前校验假设确实存在，
+// 并把假设内容快照进 judgments 表（拼飞轮上下文时免重读会话）。
+func submitJudgmentHandler(c *gin.Context) {
+	sidStr := c.Param("id")
+	sid, err := strconv.Atoi(sidStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var body struct {
+		TurnIdx  int    `json:"turn_idx"`
+		HypoIdx  int    `json:"hypo_idx"`
+		Judgment string `json:"judgment" binding:"required"`
+		Reason   string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	switch body.Judgment {
+	case "accepted", "rejected", "doubtful":
+	default:
+		c.JSON(400, gin.H{"error": "judgment 必须是 accepted / rejected / doubtful"})
+		return
+	}
+
+	// 读会话 turns，校验假设存在并取快照
+	var messagesJSON *string
+	if err := db.QueryRow("SELECT messages FROM sessions WHERE id = ?", sid).Scan(&messagesJSON); err != nil {
+		c.JSON(404, gin.H{"error": "会话不存在"})
+		return
+	}
+	var turns []Turn
+	if messagesJSON != nil && *messagesJSON != "" {
+		json.Unmarshal([]byte(*messagesJSON), &turns)
+	}
+	if body.TurnIdx < 0 || body.TurnIdx >= len(turns) {
+		c.JSON(404, gin.H{"error": "turn index out of range"})
+		return
+	}
+	hs := turns[body.TurnIdx].Hypotheses
+	if body.HypoIdx < 0 || body.HypoIdx >= len(hs) {
+		c.JSON(404, gin.H{"error": "hypo index out of range"})
+		return
+	}
+	h := hs[body.HypoIdx]
+	hid := fmt.Sprintf("t%d-h%d", body.TurnIdx, body.HypoIdx)
+	evJSON, _ := json.Marshal(h.EvidenceEventIDs)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, err = db.Exec(`INSERT INTO hypothesis_judgments
+		(session_id, turn_idx, hypothesis_id, judgment, reason, summary, evidence_event_ids, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(session_id, turn_idx, hypothesis_id) DO UPDATE SET
+			judgment=excluded.judgment, reason=excluded.reason, summary=excluded.summary,
+			evidence_event_ids=excluded.evidence_event_ids, updated_at=excluded.updated_at`,
+		sid, body.TurnIdx, hid, body.Judgment, body.Reason, h.Summary, string(evJSON), now, now)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true, "hypothesis_id": hid, "judgment": body.Judgment, "reason": body.Reason})
+}
+
+// listJudgmentsHandler 返回会话所有评判（前端渲染卡片状态 + 判断沉淀展示）。
+func listJudgmentsHandler(c *gin.Context) {
+	rows, err := db.Query(
+		"SELECT session_id, turn_idx, hypothesis_id, judgment, reason, summary, evidence_event_ids, created_at, updated_at FROM hypothesis_judgments WHERE session_id = ? ORDER BY id ASC",
+		c.Param("id"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	out := make([]gin.H, 0)
+	for rows.Next() {
+		var sid, turnIdx int
+		var hid, judgment, summary, createdAt, updatedAt string
+		var reasonP, evP *string
+		if err := rows.Scan(&sid, &turnIdx, &hid, &judgment, &reasonP, &summary, &evP, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+		reason, ev := "", ""
+		if reasonP != nil {
+			reason = *reasonP
+		}
+		if evP != nil {
+			ev = *evP
+		}
+		out = append(out, gin.H{
+			"session_id": sid, "turn_idx": turnIdx, "hypothesis_id": hid,
+			"judgment": judgment, "reason": reason, "summary": summary,
+			"evidence_event_ids": parseJSONInts(ev),
+			"created_at": createdAt, "updated_at": updatedAt,
+		})
+	}
+	c.JSON(200, out)
 }

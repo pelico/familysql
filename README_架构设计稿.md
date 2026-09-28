@@ -15,6 +15,7 @@
 4. **复检** — 新事实出现后，拿之前保存的分析结论对照，校准对 AI 的信任程度
 5. **回复草拟** — 针对配偶发来的一条消息，生成"当场怎么回"(仅情绪确认+延后表态，不含任何说理) + "事后复盘参考"(基于历史互动样本)，两块物理分离
 6. **AI 识图记录** — 粘贴聊天截图，自动识别对话/事件，生成待审核候选后入事实库
+7. **归因假设** — 针对"为什么"类提问，只基于已记录事实生成可检验的归因假设（证据链+置信度+反证条件+替代解释），由你自己评判采纳/反例/存疑，评判结果沉淀为个人归因模型
 
 **核心设计原则：**
 
@@ -23,7 +24,7 @@
 | **只记录，不诊断** | 事实只写"摔了碗"，不写"XX在生气"；标签是关键词，不是人格定性 | 标签一旦贴上，后续检索/分析都会强化自我暗示 |
 | **AI 没资格代填主观判断** | `severity_self`（严重度自评）AI 不填，必须用户手选；`valence`（事件性质）AI 只给建议值供确认 | 严重度是你的主观感受，AI 瞎填 1=默认轻微，相当于替你做了一次隐性判断 |
 | **输出必须可回溯** | 任何分析结论每条都要标 event_id 引用；修正事实走"留痕"（写 corrections 表，不是硬改 events） | AI 是黑盒，你要知道它每句话站在哪条记录上；改数据也必须知道改前是什么 |
-| **提示词可改不用重部署** | 5 个分析模式的系统 prompt 全部在设置页可调，改完即时写入 DB，提问生效 | 你会想改措辞/增加约束/细化输出格式，每次改完重新编译容器不值得 |
+| **提示词可改不用重部署** | 6 个分析模式的系统 prompt 全部在设置页可调，改完即时写入 DB，提问生效 | 你会想改措辞/增加约束/细化输出格式，每次改完重新编译容器不值得 |
 | **采样偏差要诚实** | 如果你只记冲突事件（人普遍如此），提问时系统会自动在 prompt 里加一段强制声明："本样本全是高严重度，缺乏平和互动，不得仅凭这些下'关系整体如何'的判断" | LLM 几乎不会主动说"你没给我看全貌"，必须代码算好分布硬塞给它 |
 
 ---
@@ -90,11 +91,20 @@ analyses                       保存的分析结论（手动点"保存为分析
 └─ output                     全文
 
 sessions                       会话（多轮分析对话）
-├─ mode                       pattern_query / contradiction_check / hypothesis_only / review / response_draft
+├─ mode                       pattern_query / contradiction_check / hypothesis_only / review / response_draft / causal_query
 ├─ filter_people / filter_tags 限定事实检索范围（可空）
 ├─ profile_ids                并行跑哪几个模型（JSON 数组，空=用全部活跃）
 ├─ fact_profile_id            事实提取专用模型 ID（避免和分析同一 API 撞 429）
-└─ messages                   JSON：Turn 数组（用户内容+图片 + AI 多模型回复 + 候选事实）
+└─ messages                   JSON：Turn 数组（用户内容+图片 + AI 多模型回复 + 候选事实 + 归因假设）
+
+hypothesis_judgments           归因假设评判（causal_query 模式的个人归因模型沉淀）
+├─ session_id / turn_idx      哪一轮会话（外键级联删除）
+├─ hypothesis_id              "t{turn}-h{idx}"，幂等覆盖（重复评判更新不重复插入）
+├─ judgment                   accepted / rejected / doubtful（用户自己判）
+├─ reason                     用户写的采纳/反例/存疑理由
+├─ summary                    假设内容快照（拼飞轮上下文时免重读会话）
+├─ evidence_event_ids         该假设引用的 event_id
+└─ created_at / updated_at
 
 interaction_patterns           情境-反应对照库（给"回复草拟"模式 Block B 用）
 ├─ person                     哪个对象（如"配偶"）
@@ -199,7 +209,7 @@ events_fts_config              SQLite FTS 内建元数据表（里面存 tokeniz
 
 ### 4.2 新建会话（选 mode / 模型 / 人物限定）
 
-- `mode`：5 选 1。不同 mode 是完全不同的 system prompt，本质是把 AI 临时调教成不同角色
+- `mode`：6 选 1。不同 mode 是完全不同的 system prompt，本质是把 AI 临时调教成不同角色
 - `人物限定 / 标签限定`：`filter_people` / `filter_tags`，`fetchContextEvents` 的**路径 A** 会按这两个字段过滤 events
 - `并行模型`：多选，多选几个就跑几次 LLM，横向对比不同模型的回复（很实用，尤其是某模型特别会分析、某模型特别会措辞时）
 - `事实提取专用模型`：单独选一个。因为"分析"和"提取"在同一请求下同时发，如果两者走同一个 API Key/Endpoint，某些 API 有并发限制很容易 429
@@ -320,16 +330,57 @@ APIMessage {
 
 序列化逻辑在 `APIMessage.toWire()`：`ContentParts` 为空就走标准 `{role, content:string}`；非空就走 `{role, content: [...]}`（OpenAI 视觉兼容格式）。这样写一份代码同时兼容纯文本模型和多模态模型——纯文本模型的 Endpoint 如果遇到 `image_url` 报错，调用外层会走降级（事实提取那边的 `runFactExtract` 就有 try/catch 语义：提取失败不影响主对话）。
 
+### 4.7 归因假设模式（causal_query）——只描述机制，不产出诊断
+
+设计出发点（刻意约束）：工具只知道"发生了什么"，不知道屏幕外背景、对方动机、长期情绪——任何 AI 从这些数据推出来的"关系诊断"都不可信。所以这个模式**不给结论，只给可检验的归因假设**，且归因是否成立由用户自己评判。
+
+```
+提问（"为什么"类）
+   │
+   ▼
+fetchContextEvents 召回事实（路径 A ∪ 路径 B，与普通模式一致）
+   │
+   ▼
+拼 system prompt（causal_query 默认 + 本会话历史评判上下文 buildJudgmentsContext）
+   │   · 历史评判：t0-h0 已采纳（理由:…）/ t1-h0 已附反例（理由:…）
+   │   · 让新假设与已沉淀的个人归因模型保持一致，或被新证据推翻
+   ▼
+callLLMForJSON 结构化生成（temperature=0.1）
+   │   hypotheses[] 每条：summary（假设句式）
+   │       · evidence_event_ids  证据链（只允许引用召回集合内的 #id）
+   │       · confidence  low/medium/high —— 按引用条数+时间跨度硬算，不是自我感觉
+   │       · counter_condition   反证条件：发生什么则此假设可信度下降
+   │       · alternative         至少一个替代解释（允许提示"可能受记录之外因素影响"）
+   │       + uncertainty         整体不确定性
+   ▼
+Turn.Hypotheses 存入会话 + 文本渲染成回复
+   ▼
+前端假设卡片 → 用户评判：采纳 / 附反例 / 存疑（可选写理由）
+   ▼
+POST /api/sessions/:id/judgments → hypothesis_judgments（幂等覆盖）
+   ▼
+下一轮提问自动带上已评判上下文 —— 个人归因模型飞轮
+```
+
+**四道硬约束（写在 causal_query 默认 prompt 里，也防模型越权）：**
+
+1. **只依据下方事实集合**，每条假设必须有 `evidence_event_ids` 引用事实的 `#id`；屏幕外背景、对方动机、长期情绪一律不允许当证据，只允许在 `alternative` 里提示"可能还受记录之外因素影响"
+2. **置信度不是自我感觉**：单一事件或同一天 → low；≥3条、跨≥3天 → medium；≥5条、跨≥1周 → high；`confidence_reason` 注明依据
+3. **禁止人格定性、禁止对动机做确定性归因**（"想控制""故意"这类词不用），一律"可能""倾向于"
+4. **每条假设必须给反证条件 + 替代解释**；最多 3 条；证据不足时返回空数组，把原因写进 `uncertainty`
+
+**评判是用户自己的判断**：`hypothesis_judgments` 表的 judgment 只存用户手选（accepted/rejected/doubtful）+ 用户理由。AI 无权自我确认自己的假设，也不会因为"采纳多"就自我加冕——评判记录只作为下一轮提问的上下文，供新假设对齐或反驳。
+
 **调用封装分层：**
 
 | 函数 | temperature | 用途 | 返回 |
 |---|---|---|---|
-| `callLLMByProfile` | 0.2 | 主对话分析回复（5种 mode） | 原文 `string` |
-| `callLLMForJSON` | 0.1 | 事实提取 / 结构化输出候选事实 | 解析到 Go struct，失败会做两层兜底（剥围栏 → 抠大括号） |
+| `callLLMByProfile` | 0.2 | 主对话分析回复（其他 5 种 mode） | 原文 `string` |
+| `callLLMForJSON` | 0.1 | 事实提取 / 结构化候选事实 / causal_query 归因假设 | 解析到 Go struct，失败会做两层兜底（剥围栏 → 抠大括号） |
 
 ---
 
-## 五、模式说明（对应 5 个 mode）
+## 五、模式说明（对应 6 个 mode）
 
 ### 5.1 pattern_query 模式查询
 只做事实罗列。输出必须：(1) 按主题分组 (2) 每条结论标引用 (3) 证据不足直接写"证据不足，暂无法判断"。适合"最近发生了什么"类提问。
@@ -351,6 +402,9 @@ APIMessage {
 
 ### 5.5 response_draft 回复草拟
 见 4.4 节。和前 4 个 mode 的关键区别：**不做关系整体诊断**，只解决"这次该怎么回"。
+
+### 5.6 causal_query 归因假设
+见 4.7 节。针对"为什么"类提问，只基于已记录事实生成**可检验的归因假设**（假设句式 + 证据链 + 置信度 + 反证条件 + 替代解释），由用户在卡片上评判（采纳/附反例/存疑），评判沉淀为个人归因模型并作为后续提问的上下文。和前 3 个 mode（问/矛盾检测/假设构建）的区别：那些模式面向"发生了什么 / 支持还是矛盾"，causal_query 面向"可能是为什么"，且**增加用户评判闭环**——AI 的归因不被默认当真，是否成立由你盖戳。
 
 ---
 
@@ -375,8 +429,10 @@ APIMessage {
 **全局机制：**
 
 - **访问口令**：`fetch` 拦截器统一给 `/api/*` 附加 `Authorization: Bearer`（token 存 localStorage）；收到 401 `{auth:true}` 自动弹登录框；图片 `<img>` 无法带 Header，自动给 `/api/images/*` 路径拼 `?token=`。APP_TOKEN 未启用时全部透传，单机体验零感知。
+- **模式选择卡片按场景分组**：新建会话时 6 个模式不再平铺，按「冲突前 · 主动联系 / 冲突中 · 需要当场回复 / 冲突后/积累期 · 梳理复盘」分组展示，每张卡片写清使用时机，解决"假设构建/日常联结/回复草拟概念模糊"的问题。
 - **数据管理（设置弹窗）**：导出 JSON 全量 / CSV 事件、立即备份、历史备份列表（自动保留 14 份）。
 - **待回填汇总（分析页）**：扫描所有 `response_draft` 会话，列出未回填的 turn（"标记已回填"一键 PATCH），防止"发完草稿就忘补结果"。
+- **归因假设卡片（causal_query）**：回复区渲染假设卡片（假设 #n / 置信度 / 证据引用 / 反证 / 替代解释），底部「采纳 / 附反例 / 存疑」三按钮，点后展开可选理由输入，提交后卡片标记已评判；已评判状态（sessionJudgments）在会话加载时从 `/api/sessions/:id/judgments` 拉取回显。
 
 **已实现、此前标注为扩展点的能力（现在都在）：**
 - 校准页数据健康卡片：事件总数 / 已校准 / 待补充字段 / 近 7 天与 30 天分布（含冲突计数）/ 数据库大小 / 人物标签 Top
@@ -410,7 +466,7 @@ getEffectiveModePrompt(mode)
 ```
 
 **设置页操作：**
-- GET `/api/mode-prompts` 返回 5 个 mode 当前生效 prompt，带 `is_default` 标志
+- GET `/api/mode-prompts` 返回 6 个 mode 当前生效 prompt，带 `is_default` 标志
 - PUT `/api/mode-prompts/:mode` → `INSERT OR REPLACE` 写 DB，下次提问立刻用
 - DELETE `/api/mode-prompts/:mode` → 删记录，下次提问自动回退代码默认（相当于恢复默认）
 
@@ -423,6 +479,7 @@ getEffectiveModePrompt(mode)
 3. **AI 不提供法律/医疗/心理专业建议**：任何 prompt 里都没这条——你如果要加，在设置页改就行。
 4. **事件性质 valence 是建议值**：AI 给出的 conflict/neutral/positive 是基于行为文本的客观分类，但**最终必须你确认**——系统在审核面板提供了下拉，可以改。
 5. **Block A 可能越界（且只有两层，不是三层）**：「Block A/B 隔离」实际是两层——① Prompt 硬约束（固定标题分隔 + A 禁止说理）② 前端物理隔离（A 默认展开、B 折叠）。之前写成"三层"是把事后回填的 upsert 机制误算进去了，upsert 是冷启动积累样本的，和隔离无关，这点已在 4.4 节更正。另外，即使 prompt 写了"禁止说理"，模型仍可能在"我理解你"之后偷偷塞一句"但其实可以……"。这属于 LLM 本身对齐局限，产品能做的是「最多可复制 2-3 版、每版 2 句」——把越界的可能泄漏面压缩到最小，不是 100% 杜绝。
+6. **归因（"为什么"）刻意不给诊断**：工具只知道"发生了什么"，不知道屏幕外背景、对方动机、长期情绪，AI 从这些数据推出来的"关系诊断"不可信。所以 causal_query 模式只生成**可检验的归因假设**（证据链 + 置信度 + 反证条件 + 替代解释），并强制要求 `counter_condition` 让每条假设"可以被推翻"；是否成立**由用户在卡片上评判**（hypothesis_judgments 表），评判结果只作为下一轮提问的上下文，AI 无权自我确认。
 
 ---
 
@@ -451,6 +508,7 @@ main.go                       路由注册 + DB schema + 迁移（events 加列 
   · GET /api/sessions         会话列表
   · GET /api/sessions/:id     会话详情
   · POST /api/sessions/:id/messages 发消息（核心分析入口）
+  · POST/GET /api/sessions/:id/judgments  归因假设评判提交/查询（causal_query）
   · POST /api/sessions/:id/candidates/:idx 单条候选事实确认/丢弃
   · POST /api/sessions/:id/batch-confirm 候选批量确认
   · POST /api/events/vision-extract AI识图候选生成
@@ -472,21 +530,23 @@ handlers_extras.go            扩展能力模块（registerExtrasRoutes(r) 一�
   · PATCH /api/sessions/:id/turn/:idx  标记回填（draft_filled）
 
 handlers_analyze.go           核心业务逻辑
-  · validModes / modeSystemPrompt  5个模式的代码默认prompt
+  · validModes / modeSystemPrompt  6个模式的代码默认prompt（含 causal_query 归因假设）
   · getEffectiveModePrompt         DB优先，回退默认
   · factExtractSystemPrompt        事实提取专用prompt（独立，不做推断）
   · runFactExtract                 事实提取调用（独立profile，可降级，图片路径还原 data URI）
   · fetchContextEvents             事实检索（路径A 筛选条件扫30条 ∪ 路径B FTS检索20条，FTS 缺失时 LIKE）
   · samplingBiasNotice             采样偏差检测（≥3条全高严重度时返回声明）
   · buildPatternsContext           response_draft 拼历史互动模式样本
-  · sessionMessagesHandler         发送消息主函数（并发提取+分析）
+  · buildJudgmentsContext          causal_query 拼本会话已评判的归因假设（个人归因模型飞轮上下文）
+  · sessionMessagesHandler         发送消息主函数（并发提取+分析；causal_query 走 callLLMForJSON 生成 hypotheses）
   · confirmFactCandidateHandler    单条候选确认（写 events）
   · batchConfirmHandler            批量候选确认（写 events）
   · correctEventHandler / listCorrectionsHandler  修正留痕
+  · submitJudgmentHandler / listJudgmentsHandler  归因假设评判提交/查询（POST+GET /api/sessions/:id/judgments）
 
 llm.go                        LLM 调用封装
   · callLLMByProfile           普通文本回复（流式？不，当前同步返回全文）
-  · callLLMForJSON             结构化JSON回复（给事实提取用，会剥 fenced JSON）
+  · callLLMForJSON             结构化JSON回复（事实提取 + causal_query 归因假设，会剥 fenced JSON）
   · APIMessage / toWire()      自动根据有无图片生成 text 版 / multi-modal 版请求
 
 public/index.html             单页前端（原生 JS，无框架）
@@ -496,12 +556,15 @@ public/index.html             单页前端（原生 JS，无框架）
   · loadDataHealth             校准页数据健康卡片（/api/stats）
   · renderDataMgmt / doExport / doBackup  设置页导出/备份/历史列表
   · loadDraftPending / markDraftFilled  待回填汇总 + 一键标记
+  · renderModeSelector          模式选择卡片按场景分组（冲突前/冲突中/冲突后），含 causal_query 归因假设卡
   · renderSessionList / renderActiveSession / renderTurn
+  · renderHypothesisCards       归因假设卡片渲染（假设 #n / 置信度 / 证据引用 / 反证 / 替代）
+  · judgeHypothesis / doJudge   评判按钮（采纳/附反例/存疑 + 可选理由 → POST judgments，judged 状态回显）
   · renderResponseDraftBlocks     response_draft A/B 分块渲染
   · renderResponseDraftResultForm 回填小表单 + submitDraftResult(upsert)
   · loadTimeline / renderFacts    事实库列表（含修正留痕弹窗）
   · openSettings / renderProfiles 模型管理
-  · renderModePrompts             提示词管理（5个模式textarea+保存+恢复默认）
+  · renderModePrompts             提示词管理（6个模式textarea+保存+恢复默认）
 
 go.mod                        依赖：gin-gonic/gin + mattn/go-sqlite3
 ```

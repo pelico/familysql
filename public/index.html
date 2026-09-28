@@ -467,6 +467,58 @@
   .mode-card.selected .mode-icon svg { color: white; }
   .mode-name { font-size: 12px; font-weight: 600; color: #334155; }
   .mode-card.selected .mode-name { color: #4338ca; }
+  .mode-group-label {
+    grid-column: 1 / -1;
+    font-size: 10.5px; color: #94a3b8; font-weight: 600;
+    letter-spacing: .05em; margin: 2px 0 2px;
+  }
+  .mode-scene { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+
+  /* ========== 归因假设卡片（causal_query） ========== */
+  .hypo-card {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(245,158,11,0.25);
+    background: rgba(255,250,240,0.55);
+    box-sizing: border-box;
+  }
+  .hypo-card.judged { border-color: rgba(15,23,42,0.10); background: rgba(248,250,252,0.5); }
+  .hypo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; flex-wrap: wrap; }
+  .hypo-id { font-size: 12px; font-weight: 700; color: #0f172a; }
+  .hypo-conf { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
+  .hypo-verdict { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; margin-left: auto; }
+  .v-accepted { background: rgba(16,185,129,0.12); color: #059669; }
+  .v-rejected { background: rgba(239,68,68,0.12); color: #dc2626; }
+  .v-doubtful { background: rgba(245,158,11,0.14); color: #b45309; }
+  .hypo-summary { font-size: 13px; line-height: 1.7; color: #0f172a; margin-bottom: 6px; }
+  .hypo-line { font-size: 12px; line-height: 1.6; color: #475569; margin-bottom: 4px; }
+  .hypo-line b { color: #64748b; font-weight: 600; margin-right: 4px; }
+  .hypo-line.alt { color: #7c3aed; }
+  .hypo-line.alt b { color: #8b5cf6; }
+  .hypo-reason-show { font-size: 11.5px; color: #334155; background: rgba(15,23,42,0.04); padding: 6px 9px; border-radius: 8px; margin-top: 6px; }
+  .hypo-reason-show b { color: #64748b; font-weight: 600; }
+  .hypo-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .h-btn {
+    padding: 6px 12px; font-size: 11.5px; border-radius: 9px;
+    border: 1.5px solid transparent; cursor: pointer; font-weight: 600;
+    background: rgba(15,23,42,0.05); color: #334155;
+  }
+  .h-btn.active { color: #fff; }
+  .h-accept.active { background: #10b981; }
+  .h-reject.active { background: #ef4444; }
+  .h-doubt.active { background: #f59e0b; }
+  .hypo-reason { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .hypo-reason input {
+    flex: 1; min-width: 0;
+    padding: 7px 10px; font-size: 12.5px;
+    border-radius: 8px; border: 1px solid rgba(15,23,42,0.15);
+    background: #fff; box-sizing: border-box;
+  }
+  .hypo-reason button {
+    padding: 6px 12px; font-size: 11.5px; border-radius: 9px; border: none;
+    cursor: pointer; background: #6366f1; color: #fff; font-weight: 600;
+  }
 
   /* ========== 模型 profile picker ========== */
   .prof-item {
@@ -1505,6 +1557,7 @@ const state = {
   visionCandidates: [],
   allPeople: [],            // 从 /api/people 加载的规范化人物列表
   peoplePickers: {},       // 容器 ID → { selected: [], multi: bool, onChange: fn }
+  sessionJudgments: {},    // 归因假设评判：hypothesis_id → { judgment, reason }
 };
 
 const sevLabels = {
@@ -1512,12 +1565,13 @@ const sevLabels = {
   3: '3 · 中度冲突', 4: '4 · 重度投毒', 5: '5 · 系统重构阈值'
 };
 const modeInfo = {
-  pattern_query:       { title: '模式查询',     desc: '只做统计和罗列，不下任何评价性结论。适合"最近有没有某种重复行为"类问题。' },
-  contradiction_check: { title: '矛盾检测',     desc: '针对一个假设，主动列支持+矛盾的事实，不替你下结论。适合验证直觉。' },
-  hypothesis_only:     { title: '假设构建',     desc: '允许综合推断，但强制假设句式+置信度标注+双重解释+event引用。仅在确实需要理脉络时使用。' },
-  review:              { title: '复检校准',     desc: '拿此前保存的某条分析对照新事实，检验是否被印证 —— 校准你对 AI 分析的信任程度。' },
-  response_draft:      { title: '回复草拟',     desc: '针对对方一条消息生成"这次怎么回"。当场回复候选(A)默认展开，复盘参考(B)折叠。用前先在会话设人物限定，复盘参考依赖历史互动样本。' },
-  daily_connect:       { title: '日常联结',     desc: '没有冲突、主动想联系时用。只给关键词素材和"近期先别碰"的话题提醒，绝不生成完整句子——话要你自己写。' },
+  pattern_query:       { title: '模式查询', desc: '只做统计和罗列，不下任何评价性结论。适合"最近有没有某种重复行为"类问题。', scene: '查规律' },
+  contradiction_check: { title: '矛盾检测', desc: '针对一个假设，主动列支持+矛盾的事实，不替你下结论。适合验证直觉。', scene: '验证直觉' },
+  hypothesis_only:     { title: '假设构建', desc: '允许综合推断，但强制假设句式+置信度标注+双重解释+event引用。仅在确实需要理脉络时使用。', scene: '梳理脉络' },
+  review:              { title: '复检校准', desc: '拿此前保存的某条分析对照新事实，检验是否被印证 —— 校准你对 AI 分析的信任程度。', scene: '检验旧结论' },
+  response_draft:      { title: '回复草拟', desc: '针对对方一条消息生成"这次怎么回"。当场回复候选(A)默认展开，复盘参考(B)折叠。用前先在会话设人物限定，复盘参考依赖历史互动样本。', scene: '对方刚发消息时' },
+  daily_connect:       { title: '日常联结', desc: '没有冲突、主动想联系时用。只给关键词素材和"近期先别碰"的话题提醒，绝不生成完整句子——话要你自己写。', scene: '主动联系时' },
+  causal_query:        { title: '归因假设', desc: '问"为什么"时用。AI 只基于事实给出带证据链、置信度、反证条件、替代解释的归因假设，你在卡片上评判「采纳 / 附反例 / 存疑」，你的判断会沉淀为个人归因模型。', scene: '问"为什么"时' },
 };
 const modeIcons = {
   pattern_query:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>',
@@ -1526,6 +1580,7 @@ const modeIcons = {
   review:              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
   response_draft:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3.75h9m-9 3.75h5m-7.5-9.75h15a1.5 1.5 0 011.5 1.5v9.75a1.5 1.5 0 01-1.5 1.5h-6.75l-3.75 3v-3H4.5a1.5 1.5 0 01-1.5-1.5V6.75a1.5 1.5 0 011.5-1.5z"/></svg>',
   daily_connect:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0l-5.25-5.25M12 19.5l5.25-5.25M4.5 12h5.25M14.25 12H19.5"/></svg>',
+  causal_query:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93l-14.14 14.14"/></svg>',
 };
 
 // =====================================================
@@ -2382,18 +2437,28 @@ window.delProfile = async function(id){
 };
 function renderModeSelector(){
   const box = document.getElementById('modeSelector');
-  box.innerHTML = Object.entries(modeInfo).map(([k,v])=>`
-    <div class="mode-card ${k===state.chosenMode?'selected':''}" onclick="pickMode('${k}')">
-      <div class="mode-icon">${modeIcons[k]||''}</div>
-      <div class="mode-name">${v.title}</div>
-    </div>`).join('');
+  // 按使用时机分组展示，避免 7 种模式概念混淆（何时该用哪个一目了然）
+  const groups = [
+    { label: '冲突前 · 主动联系', modes: ['daily_connect'] },
+    { label: '冲突中 · 需要当场回复', modes: ['response_draft'] },
+    { label: '冲突后 / 积累期 · 梳理复盘', modes: ['hypothesis_only', 'causal_query', 'pattern_query', 'contradiction_check', 'review'] },
+  ];
+  box.innerHTML = groups.map(g=>`
+    <div class="mode-group-label">${g.label}</div>
+    ${g.modes.map(k=>`
+      <div class="mode-card ${k===state.chosenMode?'selected':''}" onclick="pickMode('${k}')">
+        <div class="mode-icon">${modeIcons[k]||''}</div>
+        <div class="mode-name">${modeInfo[k].title}</div>
+        <div class="mode-scene">${modeInfo[k].scene||''}</div>
+      </div>`).join('')}
+  `).join('');
   document.getElementById('modeDesc').textContent = modeInfo[state.chosenMode].desc;
 }
 window.pickMode = function(k){
   state.chosenMode = k;
   renderModeSelector();
-  // response_draft / daily_connect 依赖人物限定，自动展开高级配置
-  if (k === 'response_draft' || k === 'daily_connect') {
+  // response_draft / daily_connect / causal_query 依赖人物限定，自动展开高级配置
+  if (k === 'response_draft' || k === 'daily_connect' || k === 'causal_query') {
     const box = document.getElementById('advConfigBox');
     const icon = document.getElementById('toggleAdvConfigIcon');
     const text = document.getElementById('toggleAdvConfigText');
@@ -2486,6 +2551,7 @@ window.createSession = async function(){
   const r = await res.json().catch(()=>({}));
   if (!res.ok){ alert('失败: '+(r.error||'')); return; }
   state.activeSession = {id:r.id, mode:body.mode, filter_people:body.people, filter_tags:body.tags, turns:[], fact_profile_id: factPID||undefined};
+  state.sessionJudgments = {};
   closeNewSessionModal();
   renderActiveSession();
   loadSessionList();
@@ -2521,6 +2587,12 @@ window.openSession = async function(id){
   const s = await res.json();
   if (!s.id){ alert('会话不存在'); return; }
   state.activeSession = s;
+  // 加载该会话已沉淀的归因假设评判（卡片恢复"已评判"态）
+  try {
+    const jl = await fetch('/api/sessions/'+id+'/judgments').then(r=>r.json()).catch(()=>[]);
+    state.sessionJudgments = {};
+    (jl||[]).forEach(x=>{ state.sessionJudgments[x.hypothesis_id] = {judgment:x.judgment, reason:x.reason}; });
+  } catch(e){ state.sessionJudgments = {}; }
   renderActiveSession();
 };
 window.closeSession = function(){
@@ -2588,9 +2660,97 @@ function renderActiveSession(){
       </div>
       ${renderCandidatesPanel(t.candidates||[], s.id, tIdx)}
       ${s.mode === 'response_draft' ? renderResponseDraftResultForm(s, tIdx, t) : ''}
+      ${s.mode === 'causal_query' ? renderHypothesisCards(s, t, tIdx) : ''}
     `;
     box.appendChild(wrap);
   });
+}
+
+// causal_query 模式：归因假设卡片。每条假设带证据链 / 置信度 / 反证条件 / 替代解释，
+// 底部「采纳 / 附反例 / 存疑」评判按钮 —— 评判结果沉淀为个人归因模型（judgments 表），
+// 下一次"为什么"提问时作为 system 上下文参与生成（飞轮）。
+const hypoConfMeta = { low: ['低', '#d97706'], medium: ['中', '#7c3aed'], high: ['高', '#059669'] };
+function renderHypothesisCards(s, t, tIdx){
+  const hs = (t.hypotheses||[]).filter(h=>h && h.summary);
+  if (!hs.length) return '';
+  return `
+    <div style="margin-top:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+        <span style="width:2px;height:9px;border-radius:1px;background:linear-gradient(180deg,#f59e0b,#d97706);"></span>
+        归因假设 · 你来评判（采纳/附反例/存疑，判断会沉淀为你的个人归因模型）
+      </div>
+      ${hs.map((h, hIdx)=>{
+        const hid = 't'+tIdx+'-h'+hIdx;
+        const j = state.sessionJudgments[hid] || null;
+        const cf = hypoConfMeta[h.confidence] || hypoConfMeta.low;
+        const refs = (h.evidence_event_ids||[]).map(x=>'#'+x).join(' ');
+        return `
+        <div class="hypo-card ${j?'judged':''}" data-hid="${hid}">
+          <div class="hypo-head">
+            <div class="hypo-id">假设 #${hIdx+1}</div>
+            <span class="hypo-conf" style="color:${cf[1]};background:${cf[1]}1a;">${cf[0]}置信度</span>
+            ${j?`<span class="hypo-verdict v-${j}">${j==='accepted'?'✓ 已采纳':j==='rejected'?'✗ 附反例':'？ 存疑'}</span>`:''}
+          </div>
+          <div class="hypo-summary">${escapeHtml(h.summary||'')}</div>
+          ${refs?`<div class="hypo-line"><b>证据链</b>${refs}${h.confidence_reason?` · ${escapeHtml(h.confidence_reason)}`:''}</div>`:(h.confidence_reason?`<div class="hypo-line"><b>置信度依据</b>${escapeHtml(h.confidence_reason)}</div>`:'')}
+          ${h.counter_condition?`<div class="hypo-line"><b>反证条件</b>${escapeHtml(h.counter_condition)}</div>`:''}
+          ${h.alternative?`<div class="hypo-line alt"><b>替代解释</b>${escapeHtml(h.alternative)}</div>`:''}
+          ${j && j.reason?`<div class="hypo-reason-show"><b>我的评判理由：</b>${escapeHtml(j.reason)}</div>`:''}
+          ${j ? '' : `
+          <div class="hypo-actions">
+            <button class="h-btn h-accept" onclick="judgeHypothesis(${s.id},${tIdx},${hIdx},'accepted',this)">采纳</button>
+            <button class="h-btn h-reject" onclick="judgeHypothesis(${s.id},${tIdx},${hIdx},'rejected',this)">附反例</button>
+            <button class="h-btn h-doubt" onclick="judgeHypothesis(${s.id},${tIdx},${hIdx},'doubtful',this)">存疑</button>
+          </div>
+          <div class="hypo-reason" style="display:none;">
+            <input type="text" placeholder="">
+            <button onclick="judgeHypothesis(${s.id},${tIdx},${hIdx},'pending',this)">确认</button>
+          </div>`}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// 点「采纳/附反例/存疑」先展开可选理由输入；填完点「确认」或回车才提交（judgment 记录在卡片上）。
+window.judgeHypothesis = function(sid, tIdx, hIdx, j, el){
+  const card = el.closest('.hypo-card');
+  if (j === 'pending') {
+    const input = card.querySelector('.hypo-reason input');
+    const reason = input ? input.value.trim() : '';
+    doJudge(sid, tIdx, hIdx, card.dataset.pending || 'doubtful', reason, card);
+    return;
+  }
+  card.dataset.pending = j;
+  const wrap = card.querySelector('.hypo-reason');
+  const input = wrap.querySelector('input');
+  input.placeholder = j==='accepted' ? '补充你同意的理由（可选，回车确认）'
+                  : j==='rejected' ? '写下反例 / 反驳依据（可选，回车确认）'
+                  : '写下存疑点（可选，回车确认）';
+  wrap.style.display = 'flex';
+  [...card.querySelectorAll('.h-btn')].forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  input.focus();
+};
+
+async function doJudge(sid, tIdx, hIdx, judgment, reason, card){
+  try {
+    const res = await fetch(`/api/sessions/${sid}/judgments`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({turn_idx:tIdx, hypo_idx:hIdx, judgment, reason})});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error||'失败');
+    const hid = 't'+tIdx+'-h'+hIdx;
+    state.sessionJudgments[hid] = {judgment, reason};
+    // 就地更新卡片为"已评判"态，避免整列表重渲染导致滚动跳动
+    card.classList.add('judged');
+    const btnWrap = card.querySelector('.hypo-actions'); if (btnWrap) btnWrap.remove();
+    const rWrap = card.querySelector('.hypo-reason'); if (rWrap) rWrap.remove();
+    card.querySelector('.hypo-head').insertAdjacentHTML('beforeend',
+      `<span class="hypo-verdict v-${judgment}">${judgment==='accepted'?'✓ 已采纳':judgment==='rejected'?'✗ 附反例':'？ 存疑'}</span>`);
+    if (reason) card.insertAdjacentHTML('beforeend',
+      `<div class="hypo-reason-show"><b>我的评判理由：</b>${escapeHtml(reason)}</div>`);
+  } catch(e){
+    alert('评判提交失败: '+e.message);
+  }
 }
 
 // response_draft 模式：把 AI 回复按 ## 当场回复候选 / ## 复盘参考 split 成两块，

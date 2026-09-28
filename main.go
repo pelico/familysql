@@ -130,6 +130,20 @@ func initDB() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL UNIQUE,
 		created_at TEXT DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS hypothesis_judgments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER NOT NULL,
+		turn_idx INTEGER NOT NULL,
+		hypothesis_id TEXT NOT NULL, -- "t{turn}-h{idx}"，用于幂等覆盖
+		judgment TEXT NOT NULL,      -- 'accepted' / 'rejected' / 'doubtful'
+		reason TEXT,
+		summary TEXT,                -- 假设内容快照（拼飞轮上下文时免重读会话）
+		evidence_event_ids TEXT,
+		created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, turn_idx, hypothesis_id),
+		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
 	);`
 	if _, err := db.Exec(schema); err != nil {
 		panic(err)
@@ -776,6 +790,8 @@ func main() {
 	r.POST("/api/sessions/:id/messages", sessionMessagesHandler)
 	// 候选事实确认/丢弃：把用户在审核面板里改完的 candidate 写入 events 或丢掉
 	r.POST("/api/sessions/:id/turns/:tidx/candidates/:cidx/confirm", confirmFactCandidateHandler)
+	r.POST("/api/sessions/:id/judgments", submitJudgmentHandler)
+	r.GET("/api/sessions/:id/judgments", listJudgmentsHandler)
 	r.DELETE("/api/sessions/:id", func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil { c.JSON(400, gin.H{"error": "invalid id"}); return }
