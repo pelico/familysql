@@ -407,6 +407,52 @@ func buildJudgmentsContext(sid int) string {
 	return sb.String()
 }
 
+// buildGlobalAttributionContext 读取全局归因模型（跨会话沉淀的已采纳假设），
+// 供归因分析参考：让新假设与历史上被采纳的判断保持一致，或被新证据推翻。
+// 按采纳次数降序 + 最近采纳优先取前 15 条。
+func buildGlobalAttributionContext() string {
+	rows, err := db.Query(
+		`SELECT summary, confidence, counter_condition, alternative, accept_count
+		 FROM attribution_model ORDER BY accept_count DESC, last_accepted_at DESC LIMIT 15`)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	var sb strings.Builder
+	cnt := 0
+	for rows.Next() {
+		var summary, confidence string
+		var ccP, altP *string
+		var acceptCount int
+		if err := rows.Scan(&summary, &confidence, &ccP, &altP, &acceptCount); err != nil {
+			continue
+		}
+		cc, alt := "", ""
+		if ccP != nil {
+			cc = *ccP
+		}
+		if altP != nil {
+			alt = *altP
+		}
+		cnt++
+		if cnt == 1 {
+			sb.WriteString("\n\n【个人归因模型（跨会话沉淀的已采纳假设，被采纳次数越多越可信，新假设应保持一致或被新证据推翻）】\n")
+		}
+		line := fmt.Sprintf("- [已采纳×%d] %s", acceptCount, strings.TrimSpace(summary))
+		if strings.TrimSpace(cc) != "" {
+			line += "（反证条件: " + strings.TrimSpace(cc) + "）"
+		}
+		if strings.TrimSpace(alt) != "" {
+			line += "（替代解释: " + strings.TrimSpace(alt) + "）"
+		}
+		sb.WriteString(line + "\n")
+	}
+	if cnt == 0 {
+		return ""
+	}
+	return sb.String()
+}
+
 // runFactExtract 调用指定 profile 对本轮用户输入做事实提取。
 // profileID > 0 时用指定模型（事实提取专用），否则降级用第一个活跃 profile。
 // 输入支持多模态（imageData=data URI 非空时会把图也发过去）。提取失败返回空 candidates + error；调用方可以决定是否忽略。
@@ -764,9 +810,10 @@ func sessionMessagesHandler(c *gin.Context) {
 		systemMsg.Content += buildRecentPositiveContext(fpV)
 		systemMsg.Content += buildPatternsContext(fpV)
 	}
-	// causal_query 模式：拼本会话已评判的归因假设（个人归因模型，飞轮上下文）
+	// causal_query 模式：拼本会话已评判的归因假设 + 全局归因模型（个人归因模型，飞轮上下文）
 	if modeV == "causal_query" {
 		systemMsg.Content += buildJudgmentsContext(sid)
+		systemMsg.Content += buildGlobalAttributionContext()
 	}
 
 	historyMsgs := buildHistoryMessages(turns, 6, modeV)
@@ -1475,6 +1522,26 @@ func submitJudgmentHandler(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
+	}
+	// 跨会话沉淀：judgment=accepted 时聚合进全局归因模型（summary 去重，重复采纳累加次数）
+	if body.Judgment == "accepted" && strings.TrimSpace(h.Summary) != "" {
+		_, aggErr := db.Exec(`INSERT INTO attribution_model
+			(summary, confidence, confidence_reason, counter_condition, alternative, evidence_event_ids,
+			 source_session_id, source_turn_idx, accept_count, first_accepted_at, last_accepted_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,1,?,?,?)
+			ON CONFLICT(summary) DO UPDATE SET
+				confidence=excluded.confidence, confidence_reason=excluded.confidence_reason,
+				counter_condition=excluded.counter_condition, alternative=excluded.alternative,
+				evidence_event_ids=excluded.evidence_event_ids,
+				source_session_id=excluded.source_session_id, source_turn_idx=excluded.source_turn_idx,
+				accept_count=attribution_model.accept_count+1,
+				last_accepted_at=excluded.last_accepted_at, updated_at=excluded.updated_at`,
+			h.Summary, h.Confidence, h.ConfidenceReason, h.CounterCondition, h.Alternative,
+			string(evJSON), sid, body.TurnIdx, now, now, now)
+		if aggErr != nil {
+			// 聚合失败不阻塞评判本身
+			c.Error(fmt.Errorf("aggregate attribution model: %w", aggErr))
+		}
 	}
 	c.JSON(200, gin.H{"ok": true, "hypothesis_id": hid, "judgment": body.Judgment, "reason": body.Reason})
 }

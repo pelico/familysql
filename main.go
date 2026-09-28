@@ -144,6 +144,24 @@ func initDB() {
 		updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(session_id, turn_idx, hypothesis_id),
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+	);
+	-- 全局归因模型：跨会话聚合「已采纳」的归因假设（judgment=accepted 时自动沉淀）
+	-- summary 为去重键：同一假设内容被再次采纳时累加 accept_count 并刷新证据/时间
+	CREATE TABLE IF NOT EXISTS attribution_model (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		summary TEXT NOT NULL UNIQUE,
+		confidence TEXT,
+		confidence_reason TEXT,
+		counter_condition TEXT,
+		alternative TEXT,
+		evidence_event_ids TEXT,
+		source_session_id INTEGER,
+		source_turn_idx INTEGER,
+		accept_count INTEGER NOT NULL DEFAULT 1,
+		first_accepted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		last_accepted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(source_session_id) REFERENCES sessions(id) ON DELETE SET NULL
 	);`
 	if _, err := db.Exec(schema); err != nil {
 		panic(err)
