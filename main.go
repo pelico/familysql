@@ -19,11 +19,17 @@ var db *sql.DB
 // 某些 go-sqlite3 构建未编译 FTS5 模块，此时事件搜索自动降级为 LIKE 匹配。
 var ftsEnabled bool
 
-// splitAndTrim 按逗号拆分字符串并去除空白，跳过空项
+// splitAndTrim 按常见分隔符（英文/中文逗号、顿号、分号）拆分并去除空白，跳过空项。
+// 这样无论 AI 输出 "车票,改签" 还是 "车票、改签" "车票，改签" "车票;改签"，
+// 在事实库元数据里都会被识别为独立的标签/人物。
 func splitAndTrim(s string) []string {
+	norm := strings.ReplaceAll(s, "，", ",")
+	norm = strings.ReplaceAll(norm, "、", ",")
+	norm = strings.ReplaceAll(norm, ";", ",")
+	norm = strings.ReplaceAll(norm, "；", ",")
 	var res []string
 	cur := ""
-	for _, r := range s {
+	for _, r := range norm {
 		if r == ',' {
 			if t := strings.TrimSpace(cur); t != "" {
 				res = append(res, t)
@@ -37,6 +43,25 @@ func splitAndTrim(s string) []string {
 		res = append(res, t)
 	}
 	return res
+}
+
+// normalizeList 把人物/标签列表统一为规范格式：按分隔符拆开、去重、以 ", " 连接。
+// 所有入库路径（快记 / 会话候选确认 / AI 识图批量入库）统一调用，保证事实库标签口径一致。
+func normalizeList(s string) string {
+	parts := splitAndTrim(s)
+	if len(parts) == 0 {
+		return ""
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, p := range parts {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return strings.Join(out, ", ")
 }
 
 // normalizeTimestamp 把各种常见时间字符串统一为 RFC3339（带 +08:00 时区）
@@ -280,7 +305,7 @@ func main() {
 		}
 		res, err := db.Exec(
 			"INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status) VALUES (?,?,?,?,?,?,?)",
-			e.Timestamp, e.People, e.Tags, e.Severity, e.Valence, e.Content, status,
+			e.Timestamp, normalizeList(e.People), normalizeList(e.Tags), e.Severity, e.Valence, e.Content, status,
 		)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})

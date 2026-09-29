@@ -1615,6 +1615,11 @@ const modeIcons = {
 // =====================================================
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function escapeAttr(s){return escapeHtml(s);}
+// 兼容英文逗号/中文逗号/顿号/分号分隔 → 拆成独立标签/人物（与后端 splitAndTrim 口径一致）
+function splitList(s){
+  if (!s) return [];
+  return String(s).split(/[,，、;；]/).map(x=>x.trim()).filter(Boolean);
+}
 // ISO8601 → datetime-local 控件格式 YYYY-MM-DDTHH:MM（控件不支持秒/时区）
 // 解析失败原样返回，让用户改；为空返回空串
 function tsToLocalInput(s){
@@ -2211,7 +2216,7 @@ function renderVisionCandidateCard(c, idx){
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
-        <input data-k="tags" value="${escapeAttr(c.tags||'')}" class="field vis-f" data-idx="${idx}" style="padding:7px 10px;font-size:12.5px;">
+        <input data-k="tags" value="${escapeAttr(c.tags||'')}" class="field vis-f" data-idx="${idx}" list="tagsDatalist" style="padding:7px 10px;font-size:12.5px;">
       </div>
     </div>
     <div style="margin-top:8px;">
@@ -2365,8 +2370,8 @@ async function loadTimeline(){
   state.timelineEvents = {};
   events.forEach(e=>{
     state.timelineEvents[e.id] = e;
-    const peopleArr = (e.people||'').split(',').map(s=>s.trim()).filter(Boolean);
-    const tagsArr   = (e.tags||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const peopleArr = splitList(e.people);
+    const tagsArr   = splitList(e.tags);
     const sev = (e.severity_self||0);
     const isIncomplete = peopleArr.length===0 || tagsArr.length===0 || sev===0;
     const sevClass = sev>0 ? 'sev-badge-'+sev : '';
@@ -2456,7 +2461,7 @@ window.onCorrectFieldChange = function(id){
     vWrap.innerHTML = `<select id="cfn-${id}" class="field" style="padding:9px 11px;font-size:12.5px;">${opts}</select>`;
   } else if (field === 'people') {
     // 人物：多选 chips，只从既有/新加入选，避免误造新 tag
-    const initSel = (ev.people||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const initSel = splitList(ev.people);
     vWrap.innerHTML = `<div id="cfp-${id}"></div><input id="cfn-${id}" type="hidden" value="${escapeAttr(initSel.join(', '))}">`;
     initPeoplePicker('cfp-'+id, {
       multi: true,
@@ -2465,7 +2470,7 @@ window.onCorrectFieldChange = function(id){
     });
   } else if (field === 'tags') {
     // 标签：多选 chips，选项来自既有标签，可新增
-    const initSel = (ev.tags||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const initSel = splitList(ev.tags);
     vWrap.innerHTML = `<div id="cft-${id}"></div><input id="cfn-${id}" type="hidden" value="${escapeAttr(initSel.join(', '))}">`;
     initTagPicker('cft-'+id, {
       multi: true,
@@ -3039,7 +3044,7 @@ function renderCandidateCard(c, sid, tIdx, cIdx){
       </div>
       <div>
         <div style="font-size:10.5px;font-weight:600;color:#64748b;margin-bottom:4px;">标签（逗号分隔）</div>
-        <input data-k="tags" value="${escapeAttr(c.tags||'')}" ${isDone?'disabled':''} class="field cand-f" style="padding:7px 10px;font-size:12.5px;">
+        <input data-k="tags" value="${escapeAttr(c.tags||'')}" ${isDone?'disabled':''} class="field cand-f" list="tagsDatalist" style="padding:7px 10px;font-size:12.5px;">
       </div>
     </div>
     <div style="margin-top:8px;">

@@ -240,7 +240,7 @@ const factExtractSystemPrompt = `你的任务是事实提取员。只做两件�
     "neutral"  = 中性客观事件（就医、吃药、日程安排，无明显情绪色彩）
     "positive" = 正面/积极互动（一起做事、关心、和解、轻松对话）
   注意：valence 是行为性质的客观分类，不是主观感受，AI 可以给建议值，但最终由用户确认。拿不准时填 "neutral"。
-- 标签：从输入里抓几个关键词（逗号分隔），没有就留空。
+- 标签：从输入里抓几个关键词（英文逗号分隔，不要用顿号/中文逗号/空格），没有就留空。
 - content 字段：对话类事实按"人物A：…；人物B：…"的格式串联完整对话，保留上下文顺序；非对话事件用简洁陈述句。
 - 最终输出必须是纯 JSON，严格匹配如下格式（不要加任何前置解释、不要用代码块包裹也可以）：
 {
@@ -1347,7 +1347,7 @@ func confirmFactCandidateHandler(c *gin.Context) {
 		// 写入 events.status = "reviewed"（已审核写入），severity_self 存用户确认的值，valence 存事件性质
 		res, e := db.Exec(
 			`INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status, created_at) VALUES (?,?,?,?,?,?,"reviewed",?)`,
-			ts, body.People, body.Tags, sev, valence, body.Content, now,
+			ts, normalizeList(body.People), normalizeList(body.Tags), sev, valence, body.Content, now,
 		)
 		if e != nil {
 			c.JSON(500, gin.H{"error": e.Error()})
@@ -1445,7 +1445,7 @@ func batchConfirmHandler(c *gin.Context) {
 		}
 		res, err := db.Exec(
 			`INSERT INTO events (timestamp, people, tags, severity_self, valence, content, status, created_at) VALUES (?,?,?,?,?,?,"reviewed",?)`,
-			ts, c2.People, c2.Tags, sev, valence, c2.Content, now,
+			ts, normalizeList(c2.People), normalizeList(c2.Tags), sev, valence, c2.Content, now,
 		)
 		if err != nil {
 			continue
